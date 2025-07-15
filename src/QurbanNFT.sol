@@ -1,34 +1,70 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+// Compatible with OpenZeppelin Contracts ^5.0.0
+pragma solidity ^0.8.27;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 
-contract QurbanNFT is ERC721, Ownable {
-    uint256 private _tokenIdCounter;
-    mapping(uint256 => string) public tokenMetadata;
+contract QurbanNFT is
+    ERC721,
+    ERC721Enumerable,
+    ERC721URIStorage,
+    AccessControl
+{
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    uint256 private _nextTokenId;
 
-    event NFTMinted(address indexed to, uint256 indexed tokenId);
+    constructor(
+        address defaultAdmin,
+        address minter
+    ) ERC721("QurbanNFT", "QRBN") {
+        _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
+        _grantRole(MINTER_ROLE, minter);
+    }
 
-    constructor() ERC721("QurbanNFT", "QRB") Ownable(msg.sender) {}
-
-    function mint(address to) public onlyOwner {
-        uint256 tokenId = _tokenIdCounter;
-        _tokenIdCounter++;
+    function safeMint(
+        address to,
+        string memory uri
+    ) public onlyRole(MINTER_ROLE) returns (uint256) {
+        uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
-        // tokenMetadata[tokenId] = metadata;
-
-        emit NFTMinted(to, tokenId);
+        _setTokenURI(tokenId, uri);
+        return tokenId;
     }
 
-    function totalSupply() public view returns (uint256) {
-        return _tokenIdCounter;
+    // The following functions are overrides required by Solidity.
+
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal override(ERC721, ERC721Enumerable) returns (address) {
+        return super._update(to, tokenId, auth);
     }
 
-    function getTokenMetadata(
+    function _increaseBalance(
+        address account,
+        uint128 value
+    ) internal override(ERC721, ERC721Enumerable) {
+        super._increaseBalance(account, value);
+    }
+
+    function tokenURI(
         uint256 tokenId
-    ) public view returns (string memory) {
-        require(_ownerOf(tokenId) != address(0), "Token does not exist");
-        return tokenMetadata[tokenId];
+    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+
+    function supportsInterface(
+        bytes4 interfaceId
+    )
+        public
+        view
+        override(ERC721, ERC721Enumerable, ERC721URIStorage, AccessControl)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
     }
 }
