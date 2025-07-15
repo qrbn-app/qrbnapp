@@ -339,7 +339,6 @@ contract Qurban is AccessControl {
         uint256 vendorShare = totalPaid - platformFee;
 
         i_usdc.transferFrom(msg.sender, address(this), totalPaid);
-        i_usdc.transfer(animal.vendor, vendorShare);
 
         s_vendors[animal.vendor].totalSales += vendorShare;
         animal.availableShares -= _shareAmount;
