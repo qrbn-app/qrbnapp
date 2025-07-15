@@ -91,7 +91,7 @@ contract Qurban is AccessControl {
     IERC20 public immutable i_usdc;
     QurbanNFT public immutable i_qurbanNFT;
 
-    bytes32 public constant VENDOR_ROLE = keccak256("VENDOR");
+    bytes32 public constant VENDOR_ROLE = keccak256("VENDOR_ROLE");
 
     event VendorRegistered(
         address indexed vendorAddress,
