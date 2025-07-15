@@ -14,7 +14,7 @@ contract QurbanNFT is
     AccessControl
 {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    uint256 private _nextTokenId;
+    uint256 private _nextTokenId = 1;
 
     constructor(
         address defaultAdmin,
