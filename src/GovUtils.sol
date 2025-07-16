@@ -3,15 +3,8 @@ pragma solidity ^0.8.27;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
-contract Utils is AccessControl {
+contract GovUtils is AccessControl {
     bytes32 public constant GOVERNER_ROLE = keccak256("GOVERNER_ROLE");
-
-    uint16 public constant LISK_CHAINID = 1135;
-    uint16 public constant LISK_SEPOLIA_CHAINID = 4202;
-
-    uint256 public constant PLATFORM_FEE_BPS = 250; // 2.5%
-    uint8 public constant MAX_SHARES = 20;
-    uint256 public constant BPS_BASE = 10000;
 
     function grantGovernerRole(
         address _governerAddress,

@@ -12,15 +12,16 @@ contract Helper is Script {
     struct NetworkConfig {
         address usdcTokenAddress;
     }
+
     NetworkConfig public s_networkConfig;
 
+    uint16 public constant LISK_CHAINID = 1135;
+    uint16 public constant LISK_SEPOLIA_CHAINID = 4202;
+
     constructor() {
-        // Lisk
-        if (block.chainid == 1135) {
+        if (block.chainid == LISK_CHAINID) {
             s_networkConfig = getLiskNetworkConfig();
-        }
-        // Lisk Sepolia
-        else if (block.chainid == 4202) {
+        } else if (block.chainid == LISK_SEPOLIA_CHAINID) {
             s_networkConfig = getLiskSepoliaNetworkConfig();
         } else {
             s_networkConfig = getLocalNetworkConfig();

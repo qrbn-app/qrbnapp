@@ -15,6 +15,10 @@ contract MockUSDC is ERC20, ERC20Burnable, Ownable, ERC20Permit {
         _mint(recipient, 10000000 * 10 ** decimals());
     }
 
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
     function mint(address to, uint256 amount) public onlyOwner {
         _mint(to, amount);
     }

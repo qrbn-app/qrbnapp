@@ -4,9 +4,9 @@ pragma solidity ^0.8.27;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {QrbnNFT} from "./QrbnNFT.sol";
 import {QrbnToken} from "./QrbnToken.sol";
-import {Utils} from "./Utils.sol";
+import {GovUtils} from "./GovUtils.sol";
 
-contract Qurban is Utils {
+contract Qurban is GovUtils {
     error AddressZero(string entity);
     error AlreadyRegistered(string entity);
     error NotVerified(string entity);
@@ -81,6 +81,12 @@ contract Qurban is Utils {
     uint256 private _nextTransactionId;
     uint256 private _nextVendorId;
 
+    uint256 public s_platformFeeBps = 250; // 2.5%
+    uint8 public s_maxShares = 7;
+    uint256 public constant BPS_BASE = 10000;
+
+    uint16 public constant LISK_CHAINID = 1135;
+
     mapping(address => Vendor) public s_vendors;
     mapping(address => bool) public s_registeredVendors;
     mapping(uint256 => Animal) public s_animals;
@@ -89,7 +95,6 @@ contract Qurban is Utils {
     mapping(address => uint256[]) public s_vendorAnimalIds;
 
     IERC20 public immutable i_usdc;
-    QrbnToken public immutable i_qurbanToken;
     QrbnNFT public immutable i_qrbnNFT;
 
     event VendorRegistered(
@@ -130,12 +135,10 @@ contract Qurban is Utils {
     constructor(
         address _usdcTokenAddress,
         address _qrbnNFTAddress,
-        address _qurbanTokenAddress,
         address _governerAddress
     ) {
         i_usdc = IERC20(_usdcTokenAddress);
         i_qrbnNFT = QrbnNFT(_qrbnNFTAddress);
-        i_qurbanToken = QrbnToken(_qurbanTokenAddress);
         _grantRole(GOVERNER_ROLE, _governerAddress);
 
         if (block.chainid != LISK_CHAINID) {
@@ -176,7 +179,6 @@ contract Qurban is Utils {
         });
 
         s_registeredVendors[_vendorAddress] = true;
-        i_qurbanToken.mint(_vendorAddress, 15 * 10 ** i_qurbanToken.decimals());
 
         emit VendorRegistered(_vendorAddress, vendorId, _name);
     }
@@ -212,7 +214,6 @@ contract Qurban is Utils {
         if (vendor.isVerified) revert AlreadyVerified("vendor");
 
         vendor.isVerified = true;
-        i_qurbanToken.mint(_vendorAddress, 15 * 10 ** i_qurbanToken.decimals());
 
         emit VendorVerifyUpdated(
             vendor.walletAddress,
@@ -232,10 +233,6 @@ contract Qurban is Utils {
         if (!vendor.isVerified) revert AlreadyUnverified("vendor");
 
         vendor.isVerified = false;
-        i_qurbanToken.burnFromWithoutApproval(
-            _vendorAddress,
-            15 * 10 ** i_qurbanToken.decimals()
-        );
 
         emit VendorVerifyUpdated(
             vendor.walletAddress,
@@ -265,7 +262,7 @@ contract Qurban is Utils {
         if (bytes(_description).length == 0) revert EmptyString("description");
         if (bytes(_breed).length == 0) revert EmptyString("breed");
         if (bytes(_farmName).length == 0) revert EmptyString("farmName");
-        if (_totalShares == 0 || _totalShares > MAX_SHARES)
+        if (_totalShares == 0 || _totalShares > s_maxShares)
             revert InvalidAmount("totalShares");
         if (_pricePerShare == 0) revert InvalidAmount("pricePerShare");
         if (_weight == 0) revert InvalidAmount("weight");
@@ -324,7 +321,7 @@ contract Qurban is Utils {
         if (bytes(_description).length == 0) revert EmptyString("description");
         if (bytes(_breed).length == 0) revert EmptyString("breed");
         if (bytes(_farmName).length == 0) revert EmptyString("farmName");
-        if (_totalShares == 0 || _totalShares > MAX_SHARES)
+        if (_totalShares == 0 || _totalShares > s_maxShares)
             revert InvalidAmount("totalShares");
         if (_pricePerShare == 0) revert InvalidAmount("pricePerShare");
         if (_weight == 0) revert InvalidAmount("weight");
@@ -385,7 +382,7 @@ contract Qurban is Utils {
             revert InvalidAmount("shareAmount");
 
         uint256 totalPaid = _shareAmount * animal.pricePerShare;
-        uint256 platformFee = (totalPaid * PLATFORM_FEE_BPS) / BPS_BASE;
+        uint256 platformFee = (totalPaid * s_platformFeeBps) / BPS_BASE;
         uint256 vendorShare = totalPaid - platformFee;
 
         i_usdc.transferFrom(msg.sender, address(this), totalPaid);

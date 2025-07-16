@@ -12,6 +12,7 @@ contract DeployQrbn is Script {
     function run(
         address _initialFounder,
         address _initialSyariahCouncil,
+        address _intiialOrgRep,
         address _initialCommunityRep
     ) public returns (Qurban, QrbnGov, QrbnToken, QrbnNFT) {
         Helper helper = new Helper();
@@ -24,6 +25,7 @@ contract DeployQrbn is Script {
         QrbnToken qrbnToken = new QrbnToken(
             _initialFounder,
             _initialSyariahCouncil,
+            _intiialOrgRep,
             _initialCommunityRep
         );
 
@@ -32,7 +34,6 @@ contract DeployQrbn is Script {
         Qurban qurban = new Qurban(
             usdcTokenAddress,
             address(qrbnNFT),
-            address(qrbnToken),
             address(qrbnGov)
         );
 

@@ -22,6 +22,7 @@ contract TestQrbn is Test {
     address i_communityRep = makeAddr("communityRep");
     address i_orgRep = makeAddr("orgRep");
     address i_buyer = makeAddr("buyer");
+    address i_vendor = makeAddr("vendor");
     address i_anotherVendor = makeAddr("anotherVendor");
 
     function setUp() public {
@@ -33,13 +34,13 @@ contract TestQrbn is Test {
         i_qrbnToken = new QrbnToken(
             i_founder,
             i_syariahCouncil,
+            i_orgRep,
             i_communityRep
         );
         i_qrbnGov = new QrbnGov(i_qrbnToken);
         i_qurban = new Qurban(
             usdcTokenAddress,
             address(i_qrbnNFT),
-            address(i_qrbnToken),
             address(i_qrbnGov)
         );
 
@@ -123,17 +124,17 @@ contract TestQrbn is Test {
     function test_RegisterVendorByNonGov() public {
         vm.expectRevert();
         vm.prank(i_founder);
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
     }
 
     function test_RegisterVendorByGov() public {
         vm.expectEmit(true, true, true, true);
-        emit Qurban.VendorRegistered(i_orgRep, 0, "NAME");
+        emit Qurban.VendorRegistered(i_vendor, 0, "NAME");
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         // Verify vendor data
-        assertEq(i_qurban.s_registeredVendors(i_orgRep), true);
+        assertEq(i_qurban.s_registeredVendors(i_vendor), true);
 
         (
             uint256 id,
@@ -144,33 +145,29 @@ contract TestQrbn is Test {
             bool isVerified,
             uint256 totalSales,
             uint256 registeredAt
-        ) = i_qurban.s_vendors(i_orgRep);
+        ) = i_qurban.s_vendors(i_vendor);
 
         assertEq(id, 0);
-        assertEq(walletAddress, i_orgRep);
+        assertEq(walletAddress, i_vendor);
         assertEq(name, "NAME");
         assertEq(contactInfo, "CONTACT");
         assertEq(location, "LOCATION");
         assertEq(isVerified, true);
         assertEq(totalSales, 0);
         assertGt(registeredAt, 0);
-        assertEq(
-            i_qrbnToken.balanceOf(i_orgRep),
-            15 * 10 ** i_qrbnToken.decimals()
-        );
+        // Vendors no longer get tokens when they register
+        assertEq(i_qrbnToken.balanceOf(i_vendor), 0);
     }
 
     function test_RegisterVendorByDeployerInTestnet() public {
         if (block.chainid != i_qurban.LISK_CHAINID()) {
             vm.expectEmit(true, true, true, true);
-            emit Qurban.VendorRegistered(i_orgRep, 0, "NAME");
-            i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+            emit Qurban.VendorRegistered(i_vendor, 0, "NAME");
+            i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
-            assertEq(i_qurban.s_registeredVendors(i_orgRep), true);
-            assertEq(
-                i_qrbnToken.balanceOf(i_orgRep),
-                15 * 10 ** i_qrbnToken.decimals()
-            );
+            assertEq(i_qurban.s_registeredVendors(i_vendor), true);
+            // Vendors no longer get tokens when they register
+            assertEq(i_qrbnToken.balanceOf(i_vendor), 0);
         }
     }
 
@@ -184,13 +181,13 @@ contract TestQrbn is Test {
 
     function test_RegisterVendorTwice() public {
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.AlreadyRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME2", "CONTACT2", "LOCATION2");
+        i_qurban.registerVendor(i_vendor, "NAME2", "CONTACT2", "LOCATION2");
     }
 
     function test_RegisterVendorWithEmptyName() public {
@@ -198,7 +195,7 @@ contract TestQrbn is Test {
             abi.encodeWithSelector(Qurban.EmptyString.selector, "name")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "", "CONTACT", "LOCATION");
     }
 
     // ============ VENDOR EDITING TESTS ============
@@ -206,14 +203,14 @@ contract TestQrbn is Test {
     function test_EditVendorByGov() public {
         // First register vendor
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         // Edit vendor
         vm.expectEmit(true, true, true, true);
-        emit Qurban.VendorEdited(i_orgRep, 0, "NEW NAME");
+        emit Qurban.VendorEdited(i_vendor, 0, "NEW NAME");
         vm.prank(address(i_qrbnGov));
         i_qurban.editVendor(
-            i_orgRep,
+            i_vendor,
             "NEW NAME",
             "NEW CONTACT",
             "NEW LOCATION"
@@ -229,7 +226,7 @@ contract TestQrbn is Test {
             ,
             ,
 
-        ) = i_qurban.s_vendors(i_orgRep);
+        ) = i_qurban.s_vendors(i_vendor);
         assertEq(name, "NEW NAME");
         assertEq(contactInfo, "NEW CONTACT");
         assertEq(location, "NEW LOCATION");
@@ -237,12 +234,12 @@ contract TestQrbn is Test {
 
     function test_EditVendorByNonGov() public {
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert();
         vm.prank(i_founder);
         i_qurban.editVendor(
-            i_orgRep,
+            i_vendor,
             "NEW NAME",
             "NEW CONTACT",
             "NEW LOCATION"
@@ -254,18 +251,18 @@ contract TestQrbn is Test {
             abi.encodeWithSelector(Qurban.NotRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.editVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.editVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
     }
 
     function test_EditVendorWithEmptyName() public {
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.EmptyString.selector, "name")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.editVendor(i_orgRep, "", "CONTACT", "LOCATION");
+        i_qurban.editVendor(i_vendor, "", "CONTACT", "LOCATION");
     }
 
     // ============ VENDOR VERIFICATION TESTS ============
@@ -273,35 +270,33 @@ contract TestQrbn is Test {
     function test_VerifyVendor() public {
         // Register vendor and unverify first
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.prank(address(i_qrbnGov));
-        i_qurban.unverifyVendor(i_orgRep);
+        i_qurban.unverifyVendor(i_vendor);
 
         // Now verify
         vm.expectEmit(true, true, true, true);
-        emit Qurban.VendorVerifyUpdated(i_orgRep, 0, true);
+        emit Qurban.VendorVerifyUpdated(i_vendor, 0, true);
         vm.prank(address(i_qrbnGov));
-        i_qurban.verifyVendor(i_orgRep);
+        i_qurban.verifyVendor(i_vendor);
 
         // Check verification status and token balance
-        (, , , , , bool isVerified, , ) = i_qurban.s_vendors(i_orgRep);
+        (, , , , , bool isVerified, , ) = i_qurban.s_vendors(i_vendor);
         assertEq(isVerified, true);
-        assertEq(
-            i_qrbnToken.balanceOf(i_orgRep),
-            15 * 10 ** i_qrbnToken.decimals()
-        ); // Should have tokens back
+        // Vendors don't get tokens when verified anymore
+        assertEq(i_qrbnToken.balanceOf(i_vendor), 0);
     }
 
     function test_VerifyVendorAlreadyVerified() public {
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.AlreadyVerified.selector, "vendor")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.verifyVendor(i_orgRep);
+        i_qurban.verifyVendor(i_vendor);
     }
 
     function test_VerifyVendorNotRegistered() public {
@@ -309,36 +304,37 @@ contract TestQrbn is Test {
             abi.encodeWithSelector(Qurban.NotRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.verifyVendor(i_orgRep);
+        i_qurban.verifyVendor(i_vendor);
     }
 
     function test_UnverifyVendor() public {
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectEmit(true, true, true, true);
-        emit Qurban.VendorVerifyUpdated(i_orgRep, 0, false);
+        emit Qurban.VendorVerifyUpdated(i_vendor, 0, false);
         vm.prank(address(i_qrbnGov));
-        i_qurban.unverifyVendor(i_orgRep);
+        i_qurban.unverifyVendor(i_vendor);
 
         // Check verification status and token balance
-        (, , , , , bool isVerified, , ) = i_qurban.s_vendors(i_orgRep);
+        (, , , , , bool isVerified, , ) = i_qurban.s_vendors(i_vendor);
         assertEq(isVerified, false);
-        assertEq(i_qrbnToken.balanceOf(i_orgRep), 0); // Tokens should be burned
+        // Vendors don't have tokens to be burned anymore
+        assertEq(i_qrbnToken.balanceOf(i_vendor), 0);
     }
 
     function test_UnverifyVendorAlreadyUnverified() public {
         vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.prank(address(i_qrbnGov));
-        i_qurban.unverifyVendor(i_orgRep);
+        i_qurban.unverifyVendor(i_vendor);
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.AlreadyUnverified.selector, "vendor")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.unverifyVendor(i_orgRep);
+        i_qurban.unverifyVendor(i_vendor);
     }
 
     // ============ ANIMAL MANAGEMENT TESTS ============
@@ -357,7 +353,7 @@ contract TestQrbn is Test {
             i_orgRep,
             "Sheep Name",
             Qurban.AnimalType.SHEEP,
-            10,
+            7,
             100e6,
             "Farm Location",
             "image.jpg",
@@ -393,8 +389,8 @@ contract TestQrbn is Test {
         assertEq(id, 0);
         assertEq(name, "Sheep Name");
         assertEq(uint8(animalType), uint8(Qurban.AnimalType.SHEEP));
-        assertEq(totalShares, 10);
-        assertEq(availableShares, 10);
+        assertEq(totalShares, 7);
+        assertEq(availableShares, 7);
         assertEq(pricePerShare, 100e6);
         assertEq(location, "Farm Location");
         assertEq(image, "image.jpg");
@@ -470,7 +466,7 @@ contract TestQrbn is Test {
             i_orgRep,
             "",
             Qurban.AnimalType.SHEEP,
-            10,
+            7,
             100e6,
             "Farm Location",
             "image.jpg",
@@ -513,7 +509,7 @@ contract TestQrbn is Test {
             i_orgRep,
             "Sheep Name",
             Qurban.AnimalType.SHEEP,
-            10,
+            7,
             100e6,
             "Farm Location",
             "image.jpg",
@@ -528,7 +524,7 @@ contract TestQrbn is Test {
 
     function test_EditAnimal() public {
         // Register vendor and add animal
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         // Edit animal
         uint256 newFutureDate = block.timestamp + 60 days;
@@ -536,11 +532,11 @@ contract TestQrbn is Test {
         emit Qurban.AnimalUpdated(0, address(i_qrbnGov), "New Sheep Name");
         vm.prank(address(i_qrbnGov));
         i_qurban.editAnimal(
-            i_orgRep,
+            i_vendor,
             0,
             "New Sheep Name",
             Qurban.AnimalType.COW,
-            15,
+            5,
             200e6,
             "New Farm Location",
             "newimage.jpg",
@@ -574,14 +570,14 @@ contract TestQrbn is Test {
         ) = i_qurban.s_animals(0);
         assertEq(name, "New Sheep Name");
         assertEq(uint8(animalType), uint8(Qurban.AnimalType.COW));
-        assertEq(totalShares, 15);
-        assertEq(availableShares, 15);
+        assertEq(totalShares, 5);
+        assertEq(availableShares, 5);
         assertEq(pricePerShare, 200e6);
         assertEq(sacrificeDate, newFutureDate);
     }
 
     function test_EditAnimalWrongVendor() public {
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
         _registerVendor(i_anotherVendor);
 
         vm.expectRevert(
@@ -608,7 +604,7 @@ contract TestQrbn is Test {
 
     function test_ApproveAnimal() public {
         // Register vendor and add animal
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         // Unapprove first
         vm.prank(address(i_qrbnGov));
@@ -627,7 +623,7 @@ contract TestQrbn is Test {
     }
 
     function test_ApproveAnimalAlreadyApproved() public {
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.AlreadyAvailable.selector, "animal")
@@ -637,7 +633,7 @@ contract TestQrbn is Test {
     }
 
     function test_UnapproveAnimal() public {
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         vm.expectEmit(true, true, true, true);
         emit Qurban.AnimalStatusUpdated(0, Qurban.AnimalStatus.PENDING);
@@ -654,7 +650,7 @@ contract TestQrbn is Test {
 
     function test_PurchaseAnimalShares() public {
         // Setup
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         // Get USDC contract and approve
         address usdcAddress = address(i_qurban.i_usdc());
@@ -693,20 +689,20 @@ contract TestQrbn is Test {
         // Check animal available shares
         (, , , , uint8 availableShares, , , , , , , , , , , , ) = i_qurban
             .s_animals(0);
-        assertEq(availableShares, 5);
+        assertEq(availableShares, 2); // 7 total shares - 5 purchased = 2 remaining
 
         // Check buyer transaction IDs
         assertEq(i_qurban.s_buyerTransactionIds(i_buyer, 0), 0);
 
         // Check vendor sales
-        (, , , , , , uint256 totalSales, ) = i_qurban.s_vendors(i_orgRep);
+        (, , , , , , uint256 totalSales, ) = i_qurban.s_vendors(i_vendor);
         uint256 expectedVendorShare = 500e6 - ((500e6 * 250) / 10000); // Total - platform fee
         assertEq(totalSales, expectedVendorShare);
     }
 
     function test_PurchaseAnimalSharesFullySold() public {
         // Setup
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         address usdcAddress = address(i_qurban.i_usdc());
         MockUSDC usdc = MockUSDC(usdcAddress);
@@ -716,7 +712,7 @@ contract TestQrbn is Test {
 
         // Purchase all shares
         vm.prank(i_buyer);
-        i_qurban.purchaseAnimalShares(0, 10);
+        i_qurban.purchaseAnimalShares(0, 7);
 
         // Verify animal status changed to SOLD
         (
@@ -743,7 +739,7 @@ contract TestQrbn is Test {
     }
 
     function test_PurchaseAnimalSharesNotAvailable() public {
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         // Unapprove animal
         vm.prank(address(i_qrbnGov));
@@ -757,7 +753,7 @@ contract TestQrbn is Test {
     }
 
     function test_PurchaseAnimalSharesInvalidAmount() public {
-        _setupVendorWithStandardAnimal(i_orgRep);
+        _setupStandardVendorWithAnimal();
 
         // Test zero shares
         vm.expectRevert(
@@ -771,7 +767,7 @@ contract TestQrbn is Test {
             abi.encodeWithSelector(Qurban.InvalidAmount.selector, "shareAmount")
         );
         vm.prank(i_buyer);
-        i_qurban.purchaseAnimalShares(0, 15);
+        i_qurban.purchaseAnimalShares(0, 8); // Trying to buy 8 shares when only 7 are available
     }
 
     // ============ TOKEN TRANSFER TESTS ============
@@ -809,13 +805,13 @@ contract TestQrbn is Test {
         assertEq(initialBalance, 0);
 
         // Mint tokens to buyer - should work (from = address(0))
-        _mintTokens(i_buyer, 50);
+        _mintTokens(i_buyer, 1);
 
         // Verify tokens were minted
-        assertEq(i_qrbnToken.balanceOf(i_buyer), 50);
+        assertEq(i_qrbnToken.balanceOf(i_buyer), 1);
 
         // Verify total supply increased
-        uint256 expectedSupply = _getInitialSupply() + 50;
+        uint256 expectedSupply = _getInitialSupply() + 1;
         assertEq(i_qrbnToken.totalSupply(), expectedSupply);
     }
 
@@ -828,17 +824,6 @@ contract TestQrbn is Test {
 
         // Verify tokens were burned
         assertEq(i_qrbnToken.balanceOf(i_founder), initialBalance - 10);
-    }
-
-    function test_TokenBurnFromWithoutApprovalStillWorks() public {
-        uint256 initialBalance = i_qrbnToken.balanceOf(i_syariahCouncil);
-        assertGt(initialBalance, 0);
-
-        // Burn tokens from syariah council without approval - should work
-        _burnTokensFromWithoutApproval(i_syariahCouncil, 20);
-
-        // Verify tokens were burned
-        assertEq(i_qrbnToken.balanceOf(i_syariahCouncil), initialBalance - 20);
     }
 
     function test_TokenTransferToZeroAddressFails() public {
@@ -856,17 +841,20 @@ contract TestQrbn is Test {
     }
 
     function test_VendorTokensCannotBeTransferred() public {
-        // Register vendor to get tokens
-        _registerVendor(i_orgRep);
+        // Register vendor (they don't get tokens anymore)
+        _registerStandardVendor();
 
-        uint256 vendorBalance = i_qrbnToken.balanceOf(i_orgRep);
-        assertEq(vendorBalance, _getVendorTokenAllocation());
+        uint256 vendorBalance = i_qrbnToken.balanceOf(i_vendor);
+        assertEq(vendorBalance, 0); // Vendors no longer get tokens
 
-        // Try to transfer vendor tokens - should fail
+        // Try to transfer from orgRep (who has tokens) - should fail
         _expectTransferToFail(i_orgRep, i_buyer, 100);
 
         // Verify balance unchanged
-        assertEq(i_qrbnToken.balanceOf(i_orgRep), vendorBalance);
+        assertEq(
+            i_qrbnToken.balanceOf(i_orgRep),
+            1 * 10 ** i_qrbnToken.decimals()
+        );
     }
 
     // ============ HELPER FUNCTIONS ============
@@ -945,20 +933,8 @@ contract TestQrbn is Test {
         i_qrbnToken.burn(amount);
     }
 
-    function _burnTokensFromWithoutApproval(
-        address from,
-        uint256 amount
-    ) internal {
-        vm.prank(address(i_qrbnGov));
-        i_qrbnToken.burnFromWithoutApproval(from, amount);
-    }
-
     function _getInitialSupply() internal view returns (uint256) {
-        return (20 + 50 + 10) * 10 ** i_qrbnToken.decimals();
-    }
-
-    function _getVendorTokenAllocation() internal view returns (uint256) {
-        return 15 * 10 ** i_qrbnToken.decimals();
+        return (1 + 1 + 1 + 1) * 10 ** i_qrbnToken.decimals();
     }
 
     function _setupVendorWithAnimal(
@@ -974,12 +950,23 @@ contract TestQrbn is Test {
     function _setupVendorWithStandardAnimal(
         address vendor
     ) internal returns (uint256 animalId) {
-        return _setupVendorWithAnimal(vendor, "Sheep Name", 10, 100e6);
+        return _setupVendorWithAnimal(vendor, "Sheep Name", 7, 100e6);
+    }
+
+    function _setupStandardVendorWithAnimal()
+        internal
+        returns (uint256 animalId)
+    {
+        return _setupVendorWithStandardAnimal(i_vendor);
     }
 
     function _registerVendor(address vendor) internal {
         vm.prank(address(i_qrbnGov));
         i_qurban.registerVendor(vendor, "NAME", "CONTACT", "LOCATION");
+    }
+
+    function _registerStandardVendor() internal {
+        _registerVendor(i_vendor);
     }
 
     function _addAnimal(

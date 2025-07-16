@@ -17,7 +17,7 @@ contract QrbnGov is
     GovernorVotesQuorumFraction
 {
     uint16 public constant LISK_CHAINID = 1135;
-    uint64 public constant PROPOSAL_TREESHOLD = 10 * 10 ** 2;
+    uint64 public constant PROPOSAL_TREESHOLD = 0;
 
     constructor(
         IVotes _token
@@ -29,7 +29,7 @@ contract QrbnGov is
             PROPOSAL_TREESHOLD
         )
         GovernorVotes(_token)
-        GovernorVotesQuorumFraction(51)
+        GovernorVotesQuorumFraction(75)
     {}
 
     function _getVotingDelay() private view returns (uint48) {

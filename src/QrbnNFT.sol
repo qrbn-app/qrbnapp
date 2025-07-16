@@ -6,9 +6,9 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import {Utils} from "./Utils.sol";
+import {GovUtils} from "./GovUtils.sol";
 
-contract QrbnNFT is ERC721, ERC721Enumerable, ERC721URIStorage, Utils {
+contract QrbnNFT is ERC721, ERC721Enumerable, ERC721URIStorage, GovUtils {
     uint256 private _nextTokenId = 1;
 
     constructor() ERC721("QRBN Sacrifice NFT", "QRBNFT") {
