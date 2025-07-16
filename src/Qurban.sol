@@ -5,8 +5,16 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {QurbanNFT} from "./QurbanNFT.sol";
 
+interface IExtendedERC20 is IERC20 {
+    function mint(address to, uint256 amount) external;
+
+    function burnFromWithoutApproval(address from, uint256 amount) external;
+}
+
 contract Qurban is AccessControl {
+    error AddressZero(string entity);
     error AlreadyRegistered(string entity);
+    error NotVerified(string entity);
     error NotRegistered(string entity);
     error EmptyString(string field);
     error AlreadyVerified(string entity);
@@ -17,6 +25,7 @@ contract Qurban is AccessControl {
     error AlreadyAvailable(string entity);
     error AlreadyPending(string entity);
     error AlreadyPurchased(string entity);
+    error Forbidden(string field);
 
     enum AnimalType {
         SHEEP,
@@ -47,7 +56,7 @@ contract Qurban is AccessControl {
         string farmName;
         uint256 sacrificeDate;
         AnimalStatus status;
-        address vendor;
+        address vendorAddress;
         uint256 createdAt;
     }
 
@@ -88,25 +97,26 @@ contract Qurban is AccessControl {
     mapping(address => uint256[]) public s_buyerTransactionIds;
     mapping(address => uint256[]) public s_vendorAnimalIds;
 
-    IERC20 public immutable i_usdc;
+    IExtendedERC20 public immutable i_usdc;
+    IExtendedERC20 public immutable i_qurbanToken;
     QurbanNFT public immutable i_qurbanNFT;
 
-    bytes32 public constant VENDOR_ROLE = keccak256("VENDOR_ROLE");
+    bytes32 public constant GOVERNER_ROLE = keccak256("GOVERNER_ROLE");
 
     event VendorRegistered(
         address indexed vendorAddress,
         uint256 indexed vendorId,
         string vendorName
     );
-    event VendorVerified(
+    event VendorEdited(
         address indexed vendorAddress,
         uint256 indexed vendorId,
         string vendorName
     );
-    event VendorUnverified(
+    event VendorVerifyUpdated(
         address indexed vendorAddress,
         uint256 indexed vendorId,
-        string vendorName
+        bool isVerified
     );
     event AnimalAdded(
         uint256 indexed animalId,
@@ -131,42 +141,76 @@ contract Qurban is AccessControl {
     constructor(
         address _usdcTokenAddress,
         address _qurbanNFTAddress,
-        address _defaultAdminAddress
+        address _qurbanTokenAddress,
+        address _governerAddress
     ) {
-        i_usdc = IERC20(_usdcTokenAddress);
+        i_usdc = IExtendedERC20(_usdcTokenAddress);
         i_qurbanNFT = QurbanNFT(_qurbanNFTAddress);
-        _grantRole(DEFAULT_ADMIN_ROLE, _defaultAdminAddress);
+        i_qurbanToken = IExtendedERC20(_qurbanTokenAddress);
+        _grantRole(GOVERNER_ROLE, _governerAddress);
+    }
+
+    modifier checkVendor(address _vendorAddress) {
+        if (_vendorAddress == address(0)) revert AddressZero("vendorAddress");
+        if (!s_registeredVendors[_vendorAddress])
+            revert NotRegistered("vendor");
+        if (!s_vendors[_vendorAddress].isVerified) revert NotVerified("vendor");
+        _;
     }
 
     function registerVendor(
+        address _vendorAddress,
         string calldata _name,
         string calldata _contactInfo,
         string calldata _location
-    ) external {
-        if (s_registeredVendors[msg.sender]) revert AlreadyRegistered("vendor");
+    ) external onlyRole(GOVERNER_ROLE) {
+        if (_vendorAddress == address(0)) revert AddressZero("vendorAddress");
+        if (s_registeredVendors[_vendorAddress])
+            revert AlreadyRegistered("vendor");
         if (bytes(_name).length == 0) revert EmptyString("name");
 
         uint256 vendorId = _nextVendorId++;
 
-        s_vendors[msg.sender] = Vendor({
+        s_vendors[_vendorAddress] = Vendor({
             id: vendorId,
-            walletAddress: msg.sender,
+            walletAddress: _vendorAddress,
             name: _name,
             contactInfo: _contactInfo,
             location: _location,
-            isVerified: false,
+            isVerified: true,
             totalSales: 0,
             registeredAt: block.timestamp
         });
 
-        s_registeredVendors[msg.sender] = true;
+        s_registeredVendors[_vendorAddress] = true;
+        i_qurbanToken.mint(_vendorAddress, 15e18);
 
-        emit VendorRegistered(msg.sender, vendorId, _name);
+        emit VendorRegistered(_vendorAddress, vendorId, _name);
+    }
+
+    function EditVendor(
+        address _vendorAddress,
+        string calldata _name,
+        string calldata _contactInfo,
+        string calldata _location
+    ) external onlyRole(GOVERNER_ROLE) {
+        if (_vendorAddress == address(0)) revert AddressZero("vendorAddress");
+        if (!s_registeredVendors[_vendorAddress])
+            revert NotRegistered("vendor");
+        if (bytes(_name).length == 0) revert EmptyString("name");
+
+        Vendor storage vendor = s_vendors[_vendorAddress];
+
+        vendor.name = _name;
+        vendor.contactInfo = _contactInfo;
+        vendor.location = _location;
+
+        emit VendorEdited(_vendorAddress, vendor.id, _name);
     }
 
     function verifyVendor(
         address _vendorAddress
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external onlyRole(GOVERNER_ROLE) {
         if (!s_registeredVendors[_vendorAddress])
             revert NotRegistered("vendor");
 
@@ -175,14 +219,18 @@ contract Qurban is AccessControl {
         if (vendor.isVerified) revert AlreadyVerified("vendor");
 
         vendor.isVerified = true;
-        _grantRole(VENDOR_ROLE, vendor.walletAddress);
+        i_qurbanToken.mint(_vendorAddress, 15e18);
 
-        emit VendorVerified(vendor.walletAddress, vendor.id, vendor.name);
+        emit VendorVerifyUpdated(
+            vendor.walletAddress,
+            vendor.id,
+            vendor.isVerified
+        );
     }
 
     function unverifyVendor(
         address _vendorAddress
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external onlyRole(GOVERNER_ROLE) {
         if (!s_registeredVendors[_vendorAddress])
             revert NotRegistered("vendor");
 
@@ -191,12 +239,17 @@ contract Qurban is AccessControl {
         if (!vendor.isVerified) revert AlreadyUnverified("vendor");
 
         vendor.isVerified = false;
-        _revokeRole(VENDOR_ROLE, vendor.walletAddress);
+        i_qurbanToken.burnFromWithoutApproval(_vendorAddress, 15e8);
 
-        emit VendorUnverified(vendor.walletAddress, vendor.id, vendor.name);
+        emit VendorVerifyUpdated(
+            vendor.walletAddress,
+            vendor.id,
+            vendor.isVerified
+        );
     }
 
     function addAnimal(
+        address _vendorAddress,
         string calldata _name,
         AnimalType _animalType,
         uint8 _totalShares,
@@ -209,7 +262,7 @@ contract Qurban is AccessControl {
         uint16 _age,
         string calldata _farmName,
         uint256 _sacrificeDate
-    ) external onlyRole(VENDOR_ROLE) {
+    ) external onlyRole(GOVERNER_ROLE) checkVendor(_vendorAddress) {
         if (bytes(_name).length == 0) revert EmptyString("name");
         if (bytes(_location).length == 0) revert EmptyString("location");
         if (bytes(_image).length == 0) revert EmptyString("image");
@@ -241,17 +294,18 @@ contract Qurban is AccessControl {
             age: _age,
             farmName: _farmName,
             sacrificeDate: _sacrificeDate,
-            status: AnimalStatus.PENDING,
-            vendor: msg.sender,
+            status: AnimalStatus.AVAILABLE,
+            vendorAddress: _vendorAddress,
             createdAt: block.timestamp
         });
 
-        s_vendorAnimalIds[msg.sender].push(animalId);
+        s_vendorAnimalIds[_vendorAddress].push(animalId);
 
-        emit AnimalAdded(animalId, msg.sender, _name);
+        emit AnimalAdded(animalId, _vendorAddress, _name);
     }
 
     function editAnimal(
+        address _vendorAddress,
         uint256 _animalId,
         string calldata _name,
         AnimalType _animalType,
@@ -265,7 +319,9 @@ contract Qurban is AccessControl {
         uint16 _age,
         string calldata _farmName,
         uint256 _sacrificeDate
-    ) external onlyRole(VENDOR_ROLE) {
+    ) external onlyRole(GOVERNER_ROLE) checkVendor(_vendorAddress) {
+        if (s_animals[_animalId].vendorAddress != _vendorAddress)
+            revert Forbidden("vendorAddress");
         if (bytes(_name).length == 0) revert EmptyString("name");
         if (bytes(_location).length == 0) revert EmptyString("location");
         if (bytes(_image).length == 0) revert EmptyString("image");
@@ -299,9 +355,7 @@ contract Qurban is AccessControl {
         emit AnimalUpdated(_animalId, msg.sender, _name);
     }
 
-    function approveAnimal(
-        uint256 _animalId
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function approveAnimal(uint256 _animalId) external onlyRole(GOVERNER_ROLE) {
         Animal storage animal = s_animals[_animalId];
         if (animal.status == AnimalStatus.AVAILABLE)
             revert AlreadyAvailable("animal");
@@ -312,7 +366,7 @@ contract Qurban is AccessControl {
 
     function unapproveAnimal(
         uint256 _animalId
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external onlyRole(GOVERNER_ROLE) {
         Animal storage animal = s_animals[_animalId];
         if (animal.status == AnimalStatus.PENDING)
             revert AlreadyPending("animal");
@@ -340,7 +394,7 @@ contract Qurban is AccessControl {
 
         i_usdc.transferFrom(msg.sender, address(this), totalPaid);
 
-        s_vendors[animal.vendor].totalSales += vendorShare;
+        s_vendors[animal.vendorAddress].totalSales += vendorShare;
         animal.availableShares -= _shareAmount;
 
         if (animal.availableShares == 0) {

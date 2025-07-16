@@ -19,7 +19,7 @@ contract QurbanNFT is
     constructor(
         address defaultAdmin,
         address minter
-    ) ERC721("QurbanNFT", "QRBN") {
+    ) ERC721("QurbanNFT", "QRN") {
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(MINTER_ROLE, minter);
     }

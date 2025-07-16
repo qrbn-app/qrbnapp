@@ -2,43 +2,57 @@
 // Compatible with OpenZeppelin Contracts ^5.0.0
 pragma solidity ^0.8.27;
 
+import {AccessManaged} from "@openzeppelin/contracts/access/manager/AccessManaged.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract QurbanToken is
     ERC20,
     ERC20Burnable,
     ERC20Pausable,
-    Ownable,
+    AccessManaged,
     ERC20Permit,
     ERC20Votes
 {
     constructor(
-        address recipient,
-        address initialOwner
+        address initialFounder,
+        address initialSyariahCouncil,
+        address initialCommunityRep,
+        address initialOrgRep,
+        address initialAuthority
     )
         ERC20("QurbanToken", "QRT")
-        Ownable(initialOwner)
+        AccessManaged(initialAuthority)
         ERC20Permit("QurbanToken")
     {
-        _mint(recipient, 10000 * 10 ** decimals());
+        _mint(initialFounder, 20e18);
+        _mint(initialSyariahCouncil, 50e18);
+        _mint(initialCommunityRep, 10e18);
+        _mint(initialOrgRep, 15e18);
     }
 
-    function pause() public onlyOwner {
+    function pause() public restricted {
         _pause();
     }
 
-    function unpause() public onlyOwner {
+    function unpause() public restricted {
         _unpause();
     }
 
-    function mint(address to, uint256 amount) public onlyOwner {
+    function mint(address to, uint256 amount) public restricted {
         _mint(to, amount);
+        _delegate(to, to);
+    }
+
+    function burnFromWithoutApproval(
+        address from,
+        uint256 amount
+    ) public restricted {
+        _burn(from, amount);
     }
 
     function clock() public view override returns (uint48) {

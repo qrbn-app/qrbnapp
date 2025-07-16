@@ -20,7 +20,7 @@ contract QurbanGov is
         IVotes _token
     )
         Governor("QurbanGov")
-        GovernorSettings(1 minutes, 5 minutes, 0)
+        GovernorSettings(1 minutes, 5 minutes, 10e18)
         GovernorVotes(_token)
         GovernorVotesQuorumFraction(25)
     {}
