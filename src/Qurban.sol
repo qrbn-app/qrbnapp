@@ -181,7 +181,7 @@ contract Qurban is Utils {
         emit VendorRegistered(_vendorAddress, vendorId, _name);
     }
 
-    function EditVendor(
+    function editVendor(
         address _vendorAddress,
         string calldata _name,
         string calldata _contactInfo,

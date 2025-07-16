@@ -212,7 +212,7 @@ contract TestQrbn is Test {
         vm.expectEmit(true, true, true, true);
         emit Qurban.VendorEdited(i_orgRep, 0, "NEW NAME");
         vm.prank(address(i_qrbnGov));
-        i_qurban.EditVendor(
+        i_qurban.editVendor(
             i_orgRep,
             "NEW NAME",
             "NEW CONTACT",
@@ -241,7 +241,7 @@ contract TestQrbn is Test {
 
         vm.expectRevert();
         vm.prank(i_founder);
-        i_qurban.EditVendor(
+        i_qurban.editVendor(
             i_orgRep,
             "NEW NAME",
             "NEW CONTACT",
@@ -254,7 +254,7 @@ contract TestQrbn is Test {
             abi.encodeWithSelector(Qurban.NotRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.EditVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
+        i_qurban.editVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
     }
 
     function test_EditVendorWithEmptyName() public {
@@ -265,7 +265,7 @@ contract TestQrbn is Test {
             abi.encodeWithSelector(Qurban.EmptyString.selector, "name")
         );
         vm.prank(address(i_qrbnGov));
-        i_qurban.EditVendor(i_orgRep, "", "CONTACT", "LOCATION");
+        i_qurban.editVendor(i_orgRep, "", "CONTACT", "LOCATION");
     }
 
     // ============ VENDOR VERIFICATION TESTS ============
@@ -528,25 +528,7 @@ contract TestQrbn is Test {
 
     function test_EditAnimal() public {
         // Register vendor and add animal
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         // Edit animal
         uint256 newFutureDate = block.timestamp + 60 days;
@@ -599,33 +581,8 @@ contract TestQrbn is Test {
     }
 
     function test_EditAnimalWrongVendor() public {
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(
-            i_anotherVendor,
-            "NAME2",
-            "CONTACT2",
-            "LOCATION2"
-        );
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
+        _registerVendor(i_anotherVendor);
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.Forbidden.selector, "vendorAddress")
@@ -651,25 +608,7 @@ contract TestQrbn is Test {
 
     function test_ApproveAnimal() public {
         // Register vendor and add animal
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         // Unapprove first
         vm.prank(address(i_qrbnGov));
@@ -688,25 +627,7 @@ contract TestQrbn is Test {
     }
 
     function test_ApproveAnimalAlreadyApproved() public {
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         vm.expectRevert(
             abi.encodeWithSelector(Qurban.AlreadyAvailable.selector, "animal")
@@ -716,25 +637,7 @@ contract TestQrbn is Test {
     }
 
     function test_UnapproveAnimal() public {
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         vm.expectEmit(true, true, true, true);
         emit Qurban.AnimalStatusUpdated(0, Qurban.AnimalStatus.PENDING);
@@ -751,25 +654,7 @@ contract TestQrbn is Test {
 
     function test_PurchaseAnimalShares() public {
         // Setup
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         // Get USDC contract and approve
         address usdcAddress = address(i_qurban.i_usdc());
@@ -821,25 +706,7 @@ contract TestQrbn is Test {
 
     function test_PurchaseAnimalSharesFullySold() public {
         // Setup
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         address usdcAddress = address(i_qurban.i_usdc());
         MockUSDC usdc = MockUSDC(usdcAddress);
@@ -876,25 +743,7 @@ contract TestQrbn is Test {
     }
 
     function test_PurchaseAnimalSharesNotAvailable() public {
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         // Unapprove animal
         vm.prank(address(i_qrbnGov));
@@ -908,25 +757,7 @@ contract TestQrbn is Test {
     }
 
     function test_PurchaseAnimalSharesInvalidAmount() public {
-        vm.prank(address(i_qrbnGov));
-        i_qurban.registerVendor(i_orgRep, "NAME", "CONTACT", "LOCATION");
-
-        vm.prank(address(i_qrbnGov));
-        i_qurban.addAnimal(
-            i_orgRep,
-            "Sheep Name",
-            Qurban.AnimalType.SHEEP,
-            10,
-            100e6,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
-        );
+        _setupVendorWithStandardAnimal(i_orgRep);
 
         // Test zero shares
         vm.expectRevert(
@@ -943,7 +774,208 @@ contract TestQrbn is Test {
         i_qurban.purchaseAnimalShares(0, 15);
     }
 
+    // ============ TOKEN TRANSFER TESTS ============
+
+    function test_TokenTransferFails() public {
+        TokenBalances memory balances = _getTokenBalances();
+
+        // Try to transfer from founder to syariah council - should fail
+        _expectTransferToFail(i_founder, i_syariahCouncil, 10);
+
+        // Verify balances unchanged
+        _assertBalancesUnchanged(balances);
+    }
+
+    function test_TokenTransferFromFails() public {
+        TokenBalances memory balances = _getTokenBalances();
+
+        // Founder approves syariah council to spend tokens
+        _approveTokens(i_founder, i_syariahCouncil, 10);
+
+        // Try transferFrom - should fail even with approval
+        _expectTransferFromToFail(
+            i_syariahCouncil,
+            i_founder,
+            i_communityRep,
+            5
+        );
+
+        // Verify balances unchanged
+        _assertBalancesUnchanged(balances);
+    }
+
+    function test_TokenMintingStillWorks() public {
+        uint256 initialBalance = i_qrbnToken.balanceOf(i_buyer);
+        assertEq(initialBalance, 0);
+
+        // Mint tokens to buyer - should work (from = address(0))
+        _mintTokens(i_buyer, 50);
+
+        // Verify tokens were minted
+        assertEq(i_qrbnToken.balanceOf(i_buyer), 50);
+
+        // Verify total supply increased
+        uint256 expectedSupply = _getInitialSupply() + 50;
+        assertEq(i_qrbnToken.totalSupply(), expectedSupply);
+    }
+
+    function test_TokenBurningStillWorks() public {
+        uint256 initialBalance = i_qrbnToken.balanceOf(i_founder);
+        assertGt(initialBalance, 0);
+
+        // Burn tokens from founder - should work (to = address(0))
+        _burnTokens(i_founder, 10);
+
+        // Verify tokens were burned
+        assertEq(i_qrbnToken.balanceOf(i_founder), initialBalance - 10);
+    }
+
+    function test_TokenBurnFromWithoutApprovalStillWorks() public {
+        uint256 initialBalance = i_qrbnToken.balanceOf(i_syariahCouncil);
+        assertGt(initialBalance, 0);
+
+        // Burn tokens from syariah council without approval - should work
+        _burnTokensFromWithoutApproval(i_syariahCouncil, 20);
+
+        // Verify tokens were burned
+        assertEq(i_qrbnToken.balanceOf(i_syariahCouncil), initialBalance - 20);
+    }
+
+    function test_TokenTransferToZeroAddressFails() public {
+        // This should fail because it's handled by the burn function, not transfer
+        vm.expectRevert();
+        vm.prank(i_founder);
+        i_qrbnToken.transfer(address(0), 10);
+    }
+
+    function test_TokenTransferFromZeroAddressFails() public {
+        // This should fail because only minting function can do this
+        vm.expectRevert();
+        vm.prank(i_founder);
+        i_qrbnToken.transferFrom(address(0), i_buyer, 10);
+    }
+
+    function test_VendorTokensCannotBeTransferred() public {
+        // Register vendor to get tokens
+        _registerVendor(i_orgRep);
+
+        uint256 vendorBalance = i_qrbnToken.balanceOf(i_orgRep);
+        assertEq(vendorBalance, _getVendorTokenAllocation());
+
+        // Try to transfer vendor tokens - should fail
+        _expectTransferToFail(i_orgRep, i_buyer, 100);
+
+        // Verify balance unchanged
+        assertEq(i_qrbnToken.balanceOf(i_orgRep), vendorBalance);
+    }
+
     // ============ HELPER FUNCTIONS ============
+
+    struct TokenBalances {
+        uint256 founder;
+        uint256 syariahCouncil;
+        uint256 communityRep;
+        uint256 orgRep;
+        uint256 buyer;
+    }
+
+    function _getTokenBalances() internal view returns (TokenBalances memory) {
+        return
+            TokenBalances({
+                founder: i_qrbnToken.balanceOf(i_founder),
+                syariahCouncil: i_qrbnToken.balanceOf(i_syariahCouncil),
+                communityRep: i_qrbnToken.balanceOf(i_communityRep),
+                orgRep: i_qrbnToken.balanceOf(i_orgRep),
+                buyer: i_qrbnToken.balanceOf(i_buyer)
+            });
+    }
+
+    function _assertBalancesUnchanged(
+        TokenBalances memory balances
+    ) internal view {
+        assertEq(i_qrbnToken.balanceOf(i_founder), balances.founder);
+        assertEq(
+            i_qrbnToken.balanceOf(i_syariahCouncil),
+            balances.syariahCouncil
+        );
+        assertEq(i_qrbnToken.balanceOf(i_communityRep), balances.communityRep);
+        assertEq(i_qrbnToken.balanceOf(i_orgRep), balances.orgRep);
+        assertEq(i_qrbnToken.balanceOf(i_buyer), balances.buyer);
+    }
+
+    function _expectTransferToFail(
+        address from,
+        address to,
+        uint256 amount
+    ) internal {
+        vm.expectRevert(QrbnToken.TokenNotTransferrable.selector);
+        vm.prank(from);
+        i_qrbnToken.transfer(to, amount);
+    }
+
+    function _expectTransferFromToFail(
+        address spender,
+        address from,
+        address to,
+        uint256 amount
+    ) internal {
+        vm.expectRevert(QrbnToken.TokenNotTransferrable.selector);
+        vm.prank(spender);
+        i_qrbnToken.transferFrom(from, to, amount);
+    }
+
+    function _approveTokens(
+        address owner,
+        address spender,
+        uint256 amount
+    ) internal {
+        vm.prank(owner);
+        i_qrbnToken.approve(spender, amount);
+        // Verify allowance is set
+        assertEq(i_qrbnToken.allowance(owner, spender), amount);
+    }
+
+    function _mintTokens(address to, uint256 amount) internal {
+        vm.prank(address(i_qrbnGov));
+        i_qrbnToken.mint(to, amount);
+    }
+
+    function _burnTokens(address from, uint256 amount) internal {
+        vm.prank(from);
+        i_qrbnToken.burn(amount);
+    }
+
+    function _burnTokensFromWithoutApproval(
+        address from,
+        uint256 amount
+    ) internal {
+        vm.prank(address(i_qrbnGov));
+        i_qrbnToken.burnFromWithoutApproval(from, amount);
+    }
+
+    function _getInitialSupply() internal view returns (uint256) {
+        return (20 + 50 + 10) * 10 ** i_qrbnToken.decimals();
+    }
+
+    function _getVendorTokenAllocation() internal view returns (uint256) {
+        return 15 * 10 ** i_qrbnToken.decimals();
+    }
+
+    function _setupVendorWithAnimal(
+        address vendor,
+        string memory animalName,
+        uint8 shares,
+        uint256 price
+    ) internal returns (uint256 animalId) {
+        _registerVendor(vendor);
+        return _addSheepAnimal(vendor, animalName, shares, price);
+    }
+
+    function _setupVendorWithStandardAnimal(
+        address vendor
+    ) internal returns (uint256 animalId) {
+        return _setupVendorWithAnimal(vendor, "Sheep Name", 10, 100e6);
+    }
 
     function _registerVendor(address vendor) internal {
         vm.prank(address(i_qrbnGov));
@@ -955,22 +987,79 @@ contract TestQrbn is Test {
         uint8 shares,
         uint256 price
     ) internal returns (uint256) {
+        return
+            _addAnimalWithDetails(
+                vendor,
+                "Animal Name",
+                Qurban.AnimalType.SHEEP,
+                shares,
+                price,
+                "Farm Location",
+                "image.jpg",
+                "Description",
+                "Breed",
+                50,
+                2,
+                "Farm Name",
+                block.timestamp + 30 days
+            );
+    }
+
+    function _addAnimalWithDetails(
+        address vendor,
+        string memory name,
+        Qurban.AnimalType animalType,
+        uint8 shares,
+        uint256 price,
+        string memory location,
+        string memory image,
+        string memory description,
+        string memory breed,
+        uint16 weight,
+        uint16 age,
+        string memory farmName,
+        uint256 sacrificeDate
+    ) internal returns (uint256) {
         vm.prank(address(i_qrbnGov));
         i_qurban.addAnimal(
             vendor,
-            "Animal Name",
-            Qurban.AnimalType.SHEEP,
+            name,
+            animalType,
             shares,
             price,
-            "Farm Location",
-            "image.jpg",
-            "Description",
-            "Breed",
-            50,
-            2,
-            "Farm Name",
-            block.timestamp + 30 days
+            location,
+            image,
+            description,
+            breed,
+            weight,
+            age,
+            farmName,
+            sacrificeDate
         );
-        return 0; // First animal will have ID 0
+        return 0; // Return the ID of the just-created animal (assuming first animal = 0)
+    }
+
+    function _addSheepAnimal(
+        address vendor,
+        string memory name,
+        uint8 shares,
+        uint256 price
+    ) internal returns (uint256) {
+        return
+            _addAnimalWithDetails(
+                vendor,
+                name,
+                Qurban.AnimalType.SHEEP,
+                shares,
+                price,
+                "Farm Location",
+                "image.jpg",
+                "Description",
+                "Breed",
+                50,
+                2,
+                "Farm Name",
+                block.timestamp + 30 days
+            );
     }
 }

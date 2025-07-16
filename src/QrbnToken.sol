@@ -19,6 +19,8 @@ contract QrbnToken is
     ERC20Votes,
     Utils
 {
+    error TokenNotTransferrable();
+
     constructor(
         address _initialFounder,
         address _initialSyariahCouncil,
@@ -71,6 +73,10 @@ contract QrbnToken is
         address to,
         uint256 value
     ) internal override(ERC20, ERC20Pausable, ERC20Votes) {
+        if (from != address(0) && to != address(0)) {
+            revert TokenNotTransferrable();
+        }
+
         super._update(from, to, value);
     }
 
