@@ -3,8 +3,12 @@ pragma solidity ^0.8.27;
 
 import {Script} from "forge-std/Script.sol";
 import {MockUSDC} from "../src/MockUSDC.sol";
+import {QrbnNFT} from "../src/QrbnNFT.sol";
+import {QrbnToken} from "../src/QrbnToken.sol";
+import {QrbnGov} from "../src/QrbnGov.sol";
+import {Qurban} from "../src/Qurban.sol";
 
-contract HelperConfig is Script {
+contract Helper is Script {
     struct NetworkConfig {
         address usdcTokenAddress;
     }

@@ -9,21 +9,42 @@ import {GovernorVotes} from "@openzeppelin/contracts/governance/extensions/Gover
 import {GovernorVotesQuorumFraction} from "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
-contract QurbanGov is
+contract QrbnGov is
     Governor,
     GovernorSettings,
     GovernorCountingSimple,
     GovernorVotes,
     GovernorVotesQuorumFraction
 {
+    uint16 public constant LISK_CHAINID = 1135;
+    uint64 public constant PROPOSAL_TREESHOLD = 10 * 10 ** 2;
+
     constructor(
         IVotes _token
     )
-        Governor("QurbanGov")
-        GovernorSettings(1 minutes, 5 minutes, 10e18)
+        Governor("QrbnGov")
+        GovernorSettings(
+            _getVotingDelay(),
+            _getVotingPeriod(),
+            PROPOSAL_TREESHOLD
+        )
         GovernorVotes(_token)
-        GovernorVotesQuorumFraction(25)
+        GovernorVotesQuorumFraction(51)
     {}
+
+    function _getVotingDelay() private view returns (uint48) {
+        if (block.chainid == LISK_CHAINID) {
+            return 1 days;
+        }
+        return 1 minutes;
+    }
+
+    function _getVotingPeriod() private view returns (uint32) {
+        if (block.chainid == LISK_CHAINID) {
+            return 1 weeks;
+        }
+        return 6 minutes;
+    }
 
     // The following functions are overrides required by Solidity.
 

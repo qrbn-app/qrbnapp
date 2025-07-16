@@ -2,16 +2,11 @@
 pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {QurbanNFT} from "./QurbanNFT.sol";
+import {QrbnNFT} from "./QrbnNFT.sol";
+import {QrbnToken} from "./QrbnToken.sol";
+import {Utils} from "./Utils.sol";
 
-interface IExtendedERC20 is IERC20 {
-    function mint(address to, uint256 amount) external;
-
-    function burnFromWithoutApproval(address from, uint256 amount) external;
-}
-
-contract Qurban is AccessControl {
+contract Qurban is Utils {
     error AddressZero(string entity);
     error AlreadyRegistered(string entity);
     error NotVerified(string entity);
@@ -82,10 +77,6 @@ contract Qurban is AccessControl {
         address buyer;
     }
 
-    uint256 private constant PLATFORM_FEE_BPS = 250; // 2.5%
-    uint8 private constant MAX_SHARES = 20;
-    uint256 public constant BPS_BASE = 10000;
-
     uint256 private _nextAnimalId;
     uint256 private _nextTransactionId;
     uint256 private _nextVendorId;
@@ -97,11 +88,9 @@ contract Qurban is AccessControl {
     mapping(address => uint256[]) public s_buyerTransactionIds;
     mapping(address => uint256[]) public s_vendorAnimalIds;
 
-    IExtendedERC20 public immutable i_usdc;
-    IExtendedERC20 public immutable i_qurbanToken;
-    QurbanNFT public immutable i_qurbanNFT;
-
-    bytes32 public constant GOVERNER_ROLE = keccak256("GOVERNER_ROLE");
+    IERC20 public immutable i_usdc;
+    QrbnToken public immutable i_qurbanToken;
+    QrbnNFT public immutable i_qrbnNFT;
 
     event VendorRegistered(
         address indexed vendorAddress,
@@ -140,14 +129,18 @@ contract Qurban is AccessControl {
 
     constructor(
         address _usdcTokenAddress,
-        address _qurbanNFTAddress,
+        address _qrbnNFTAddress,
         address _qurbanTokenAddress,
         address _governerAddress
     ) {
-        i_usdc = IExtendedERC20(_usdcTokenAddress);
-        i_qurbanNFT = QurbanNFT(_qurbanNFTAddress);
-        i_qurbanToken = IExtendedERC20(_qurbanTokenAddress);
+        i_usdc = IERC20(_usdcTokenAddress);
+        i_qrbnNFT = QrbnNFT(_qrbnNFTAddress);
+        i_qurbanToken = QrbnToken(_qurbanTokenAddress);
         _grantRole(GOVERNER_ROLE, _governerAddress);
+
+        if (block.chainid != LISK_CHAINID) {
+            _grantRole(GOVERNER_ROLE, msg.sender);
+        }
     }
 
     modifier checkVendor(address _vendorAddress) {
@@ -183,7 +176,7 @@ contract Qurban is AccessControl {
         });
 
         s_registeredVendors[_vendorAddress] = true;
-        i_qurbanToken.mint(_vendorAddress, 15e18);
+        i_qurbanToken.mint(_vendorAddress, 15 * 10 ** i_qurbanToken.decimals());
 
         emit VendorRegistered(_vendorAddress, vendorId, _name);
     }
@@ -219,7 +212,7 @@ contract Qurban is AccessControl {
         if (vendor.isVerified) revert AlreadyVerified("vendor");
 
         vendor.isVerified = true;
-        i_qurbanToken.mint(_vendorAddress, 15e18);
+        i_qurbanToken.mint(_vendorAddress, 15 * 10 ** i_qurbanToken.decimals());
 
         emit VendorVerifyUpdated(
             vendor.walletAddress,
@@ -239,7 +232,10 @@ contract Qurban is AccessControl {
         if (!vendor.isVerified) revert AlreadyUnverified("vendor");
 
         vendor.isVerified = false;
-        i_qurbanToken.burnFromWithoutApproval(_vendorAddress, 15e8);
+        i_qurbanToken.burnFromWithoutApproval(
+            _vendorAddress,
+            15 * 10 ** i_qurbanToken.decimals()
+        );
 
         emit VendorVerifyUpdated(
             vendor.walletAddress,
