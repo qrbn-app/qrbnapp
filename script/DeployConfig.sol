@@ -2,30 +2,32 @@
 pragma solidity ^0.8.27;
 
 import {Script} from "forge-std/Script.sol";
-import {MockUSDC} from "../src/MockUSDC.sol";
-import {QrbnNFT} from "../src/QrbnNFT.sol";
-import {QrbnToken} from "../src/QrbnToken.sol";
-import {QrbnGov} from "../src/QrbnGov.sol";
-import {Qurban} from "../src/Qurban.sol";
+import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {QurbanNFT} from "../src/qurban/QurbanNFT.sol";
+import {QrbnToken} from "../src/dao/QrbnToken.sol";
+import {QrbnGov} from "../src/dao/QrbnGov.sol";
+import {Qurban} from "../src/qurban/Qurban.sol";
+import {Constants} from "../src/lib/Constants.sol";
 
-contract Helper is Script {
+abstract contract DeployConfig is Script {
     struct NetworkConfig {
         address usdcTokenAddress;
     }
 
-    NetworkConfig public s_networkConfig;
-
-    uint16 public constant LISK_CHAINID = 1135;
-    uint16 public constant LISK_SEPOLIA_CHAINID = 4202;
+    NetworkConfig private _networkConfig;
 
     constructor() {
-        if (block.chainid == LISK_CHAINID) {
-            s_networkConfig = getLiskNetworkConfig();
-        } else if (block.chainid == LISK_SEPOLIA_CHAINID) {
-            s_networkConfig = getLiskSepoliaNetworkConfig();
+        if (block.chainid == Constants.LISK_CHAINID) {
+            _networkConfig = getLiskNetworkConfig();
+        } else if (block.chainid == Constants.LISK_SEPOLIA_CHAINID) {
+            _networkConfig = getLiskSepoliaNetworkConfig();
         } else {
-            s_networkConfig = getLocalNetworkConfig();
+            _networkConfig = getLocalNetworkConfig();
         }
+    }
+
+    function getNetworkConfig() public view returns (NetworkConfig memory) {
+        return _networkConfig;
     }
 
     function getLiskNetworkConfig() public pure returns (NetworkConfig memory) {
@@ -47,8 +49,8 @@ contract Helper is Script {
     }
 
     function getLocalNetworkConfig() public returns (NetworkConfig memory) {
-        if (s_networkConfig.usdcTokenAddress != address(0)) {
-            return s_networkConfig;
+        if (_networkConfig.usdcTokenAddress != address(0)) {
+            return _networkConfig;
         }
 
         vm.startBroadcast();

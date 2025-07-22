@@ -9,7 +9,7 @@ import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
-import {GovUtils} from "./GovUtils.sol";
+import {Governed} from "./Governed.sol";
 
 contract QrbnToken is
     ERC20,
@@ -17,23 +17,18 @@ contract QrbnToken is
     ERC20Pausable,
     ERC20Permit,
     ERC20Votes,
-    GovUtils
+    Governed
 {
     error TokenNotTransferrable();
 
     constructor(
-        address _initialFounder,
-        address _initialSyariahCouncil,
-        address _initialOrgRep,
-        address _initialCommunityRep
-    ) ERC20("QRBN", "QRBN") ERC20Permit("QRBN") {
-        _mint(_initialFounder, 1 * 10 ** decimals());
-        _mint(_initialSyariahCouncil, 1 * 10 ** decimals());
-        _mint(_initialOrgRep, 1 * 10 ** decimals());
-        _mint(_initialCommunityRep, 1 * 10 ** decimals());
-
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-    }
+        address _timelockAddress,
+        address _tempAdminAddress
+    )
+        ERC20("QRBN", "QRBN")
+        ERC20Permit("QRBN")
+        Governed(_timelockAddress, _tempAdminAddress)
+    {}
 
     function decimals() public pure override returns (uint8) {
         return 2;
