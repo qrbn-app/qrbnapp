@@ -9,7 +9,7 @@ import {QrbnGov} from "../src/dao/QrbnGov.sol";
 import {Qurban} from "../src/qurban/Qurban.sol";
 import {Constants} from "../src/lib/Constants.sol";
 
-abstract contract DeployConfig is Script {
+contract DeployConfig is Script {
     struct NetworkConfig {
         address usdcTokenAddress;
     }
