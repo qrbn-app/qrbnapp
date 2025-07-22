@@ -3,10 +3,11 @@ pragma solidity ^0.8.27;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Qurban} from "../src/qurban/Qurban.sol";
-import {QurbanErrors} from "../src/qurban/QurbanErrors.sol";
+import {Errors} from "../src/lib/Errors.sol";
 import {QurbanNFT} from "../src/qurban/QurbanNFT.sol";
 import {QrbnToken} from "../src/dao/QrbnToken.sol";
 import {QrbnGov} from "../src/dao/QrbnGov.sol";
+import {QrbnTreasury} from "../src/dao/QrbnTreasury.sol";
 import {QrbnTimelock} from "../src/dao/QrbnTimelock.sol";
 import {DeployQrbn} from "../script/DeployQrbn.s.sol";
 import {DeployConfig} from "../script/DeployConfig.sol";
@@ -15,10 +16,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Constants} from "../src/lib/Constants.sol";
 
 contract TestQrbn is Test {
-    QurbanNFT i_qurbanNFT;
+    QrbnTreasury i_qrbnTreasury;
+    QrbnTimelock i_qrbnTimelock;
     QrbnToken i_qrbnToken;
     QrbnGov i_qrbnGov;
-    QrbnTimelock i_qrbnTimelock;
+    QurbanNFT i_qurbanNFT;
     Qurban i_qurban;
     MockUSDC i_mockUSDC;
 
@@ -42,7 +44,8 @@ contract TestQrbn is Test {
             i_qrbnGov,
             i_qrbnToken,
             i_qurban,
-            i_qurbanNFT
+            i_qurbanNFT,
+            i_qrbnTreasury
         ) = deployScript.runDeploy(
             networkConfig.usdcTokenAddress,
             i_founder,
@@ -188,10 +191,7 @@ contract TestQrbn is Test {
 
     function test_RegisterVendorWithZeroAddress() public {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.AddressZero.selector,
-                "vendorAddress"
-            )
+            abi.encodeWithSelector(Errors.AddressZero.selector, "vendorAddress")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.registerVendor(address(0), "NAME", "CONTACT", "LOCATION");
@@ -202,10 +202,7 @@ contract TestQrbn is Test {
         i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.AlreadyRegistered.selector,
-                "vendor"
-            )
+            abi.encodeWithSelector(Errors.AlreadyRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.registerVendor(i_vendor, "NAME2", "CONTACT2", "LOCATION2");
@@ -213,7 +210,7 @@ contract TestQrbn is Test {
 
     function test_RegisterVendorWithEmptyName() public {
         vm.expectRevert(
-            abi.encodeWithSelector(QurbanErrors.EmptyString.selector, "name")
+            abi.encodeWithSelector(Errors.EmptyString.selector, "name")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.registerVendor(i_vendor, "", "CONTACT", "LOCATION");
@@ -269,10 +266,7 @@ contract TestQrbn is Test {
 
     function test_EditVendorNotRegistered() public {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.NotRegistered.selector,
-                "vendor"
-            )
+            abi.encodeWithSelector(Errors.NotRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.editVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
@@ -283,7 +277,7 @@ contract TestQrbn is Test {
         i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert(
-            abi.encodeWithSelector(QurbanErrors.EmptyString.selector, "name")
+            abi.encodeWithSelector(Errors.EmptyString.selector, "name")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.editVendor(i_vendor, "", "CONTACT", "LOCATION");
@@ -317,10 +311,7 @@ contract TestQrbn is Test {
         i_qurban.registerVendor(i_vendor, "NAME", "CONTACT", "LOCATION");
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.AlreadyVerified.selector,
-                "vendor"
-            )
+            abi.encodeWithSelector(Errors.AlreadyVerified.selector, "vendor")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.verifyVendor(i_vendor);
@@ -328,10 +319,7 @@ contract TestQrbn is Test {
 
     function test_VerifyVendorNotRegistered() public {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.NotRegistered.selector,
-                "vendor"
-            )
+            abi.encodeWithSelector(Errors.NotRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.verifyVendor(i_vendor);
@@ -361,10 +349,7 @@ contract TestQrbn is Test {
         i_qurban.unverifyVendor(i_vendor);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.AlreadyUnverified.selector,
-                "vendor"
-            )
+            abi.encodeWithSelector(Errors.AlreadyUnverified.selector, "vendor")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.unverifyVendor(i_vendor);
@@ -466,10 +451,7 @@ contract TestQrbn is Test {
 
     function test_AddAnimalWithUnregisteredVendor() public {
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.NotRegistered.selector,
-                "vendor"
-            )
+            abi.encodeWithSelector(Errors.NotRegistered.selector, "vendor")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.addAnimal(
@@ -495,7 +477,7 @@ contract TestQrbn is Test {
 
         // Test empty name
         vm.expectRevert(
-            abi.encodeWithSelector(QurbanErrors.EmptyString.selector, "name")
+            abi.encodeWithSelector(Errors.EmptyString.selector, "name")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.addAnimal(
@@ -516,10 +498,7 @@ contract TestQrbn is Test {
 
         // Test zero shares
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.InvalidAmount.selector,
-                "totalShares"
-            )
+            abi.encodeWithSelector(Errors.InvalidAmount.selector, "totalShares")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.addAnimal(
@@ -540,10 +519,7 @@ contract TestQrbn is Test {
 
         // Test past date
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.InvalidDate.selector,
-                "sacrificeDate"
-            )
+            abi.encodeWithSelector(Errors.InvalidDate.selector, "sacrificeDate")
         );
         vm.warp(block.timestamp + 30 days);
         vm.prank(address(i_qrbnTimelock));
@@ -623,10 +599,7 @@ contract TestQrbn is Test {
         _registerVendor(i_anotherVendor);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.Forbidden.selector,
-                "vendorAddress"
-            )
+            abi.encodeWithSelector(Errors.Forbidden.selector, "vendorAddress")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.editAnimal(
@@ -671,10 +644,7 @@ contract TestQrbn is Test {
         _setupStandardVendorWithAnimal();
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.AlreadyAvailable.selector,
-                "animal"
-            )
+            abi.encodeWithSelector(Errors.AlreadyAvailable.selector, "animal")
         );
         vm.prank(address(i_qrbnTimelock));
         i_qurban.approveAnimal(0);
@@ -740,8 +710,15 @@ contract TestQrbn is Test {
 
         // Check vendor sales
         (, , , , , , uint256 totalSales, ) = i_qurban.s_vendors(i_vendor);
-        uint256 expectedVendorShare = 500e6 - ((500e6 * 250) / 10000); // Total - platform fee
+        uint256 platformFee = (500e6 * 250) / 10000;
+        uint256 expectedVendorShare = 500e6 - platformFee;
         assertEq(totalSales, expectedVendorShare);
+
+        // Check treasury balance
+        assertEq(
+            i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)),
+            platformFee
+        );
     }
 
     function test_PurchaseAnimalSharesFullySold() public {
@@ -790,7 +767,7 @@ contract TestQrbn is Test {
         i_qurban.unapproveAnimal(0);
 
         vm.expectRevert(
-            abi.encodeWithSelector(QurbanErrors.NotAvailable.selector, "animal")
+            abi.encodeWithSelector(Errors.NotAvailable.selector, "animal")
         );
         vm.prank(i_buyer);
         i_qurban.purchaseAnimalShares(0, 5);
@@ -801,20 +778,14 @@ contract TestQrbn is Test {
 
         // Test zero shares
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.InvalidAmount.selector,
-                "shareAmount"
-            )
+            abi.encodeWithSelector(Errors.InvalidAmount.selector, "shareAmount")
         );
         vm.prank(i_buyer);
         i_qurban.purchaseAnimalShares(0, 0);
 
         // Test more shares than available
         vm.expectRevert(
-            abi.encodeWithSelector(
-                QurbanErrors.InvalidAmount.selector,
-                "shareAmount"
-            )
+            abi.encodeWithSelector(Errors.InvalidAmount.selector, "shareAmount")
         );
         vm.prank(i_buyer);
         i_qurban.purchaseAnimalShares(0, 8); // Trying to buy 8 shares when only 7 are available
@@ -905,6 +876,237 @@ contract TestQrbn is Test {
             i_qrbnToken.balanceOf(i_orgRep),
             1 * 10 ** i_qrbnToken.decimals()
         );
+    }
+
+    // ============ TREASURY TESTS ============
+
+    function test_Treasury_InitialState() public view {
+        assertEq(
+            i_qrbnTreasury.isSupportedToken(address(i_mockUSDC)),
+            true,
+            "USDC should be a supported token"
+        );
+        assertEq(
+            i_qrbnTreasury.getSupportedTokensCount(),
+            1,
+            "Should be 1 supported token"
+        );
+        assertEq(
+            i_qrbnTreasury.authorizedDepositors(address(i_qurban)),
+            true,
+            "Qurban contract should be authorized initially"
+        );
+        assertEq(
+            i_qrbnTreasury.hasRole(
+                i_qrbnTreasury.GOVERNER_ROLE(),
+                address(i_qrbnTimelock)
+            ),
+            true,
+            "Timelock should be governor"
+        );
+    }
+
+    function test_Treasury_Fails_AuthorizeDepositorByNonGov() public {
+        vm.expectRevert();
+        vm.prank(i_founder);
+        i_qrbnTreasury.authorizeDepositor(address(i_qurban));
+    }
+
+    function test_Treasury_DeauthorizeDepositor() public {
+        vm.expectEmit(true, true, true, true);
+        emit QrbnTreasury.DepositorDeauthorized(address(i_qurban));
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.deauthorizeDepositor(address(i_qurban));
+        assertEq(i_qrbnTreasury.authorizedDepositors(address(i_qurban)), false);
+    }
+
+    function test_Treasury_WithdrawFees() public {
+        // 1. Purchase to deposit fees into treasury
+        _setupStandardVendorWithAnimal();
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 500e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 5);
+        uint256 feeAmount = (500e6 * 250) / 10000;
+
+        // 2. Withdraw
+        uint256 recipientInitialBalance = i_mockUSDC.balanceOf(i_founder);
+        vm.expectEmit(true, true, true, true);
+        emit QrbnTreasury.FeeWithdrawn(
+            address(i_mockUSDC),
+            i_founder,
+            feeAmount,
+            0
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.withdrawFees(address(i_mockUSDC), i_founder, feeAmount);
+
+        // 3. Verify
+        assertEq(
+            i_mockUSDC.balanceOf(i_founder),
+            recipientInitialBalance + feeAmount
+        );
+        assertEq(i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)), 0);
+    }
+
+    function test_Treasury_Fails_WithdrawFeesByNonGov() public {
+        // 1. Purchase to deposit fees into treasury
+        _setupStandardVendorWithAnimal();
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 500e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 5);
+        uint256 feeAmount = (500e6 * 250) / 10000;
+
+        // 2. Attempt to withdraw
+        vm.expectRevert();
+        vm.prank(i_founder);
+        i_qrbnTreasury.withdrawFees(address(i_mockUSDC), i_founder, feeAmount);
+    }
+
+    function test_Treasury_Fails_WithdrawInsufficientBalance() public {
+        _setupStandardVendorWithAnimal();
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 500e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 5);
+        uint256 feeAmount = (500e6 * 250) / 10000;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.InsufficientBalance.selector,
+                address(i_mockUSDC),
+                feeAmount,
+                feeAmount + 1
+            )
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.withdrawFees(
+            address(i_mockUSDC),
+            i_founder,
+            feeAmount + 1
+        );
+    }
+
+    function test_Treasury_DirectDepositFees() public {
+        // 1. Authorize self as depositor
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.authorizeDepositor(address(this));
+        assertEq(i_qrbnTreasury.authorizedDepositors(address(this)), true);
+
+        // 2. Mint USDC to self and approve treasury
+        uint256 depositAmount = 100e6;
+        i_mockUSDC.mint(address(this), depositAmount);
+        i_mockUSDC.approve(address(i_qrbnTreasury), depositAmount);
+
+        // 3. Deposit fees
+        vm.expectEmit(true, true, true, true);
+        emit QrbnTreasury.FeeDeposited(
+            address(i_mockUSDC),
+            address(this),
+            depositAmount,
+            depositAmount
+        );
+        i_qrbnTreasury.depositFees(address(i_mockUSDC), depositAmount);
+
+        // 4. Verify balance
+        assertEq(
+            i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)),
+            depositAmount
+        );
+        QrbnTreasury.TokenBalance memory balance = i_qrbnTreasury
+            .getTokenBalance(address(i_mockUSDC));
+        assertEq(balance.totalCollected, depositAmount);
+        assertEq(balance.availableBalance, depositAmount);
+    }
+
+    function test_Treasury_Fails_DirectDepositFromUnauthorized() public {
+        // Attempt to deposit without being an authorized depositor
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.NotAuthorized.selector, "depositor")
+        );
+        i_qrbnTreasury.depositFees(address(i_mockUSDC), 100e6);
+    }
+
+    function test_Treasury_Fails_DirectDepositUnsupportedToken() public {
+        // 1. Authorize self as depositor
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.authorizeDepositor(address(this));
+
+        // 2. Create a new mock token
+        MockUSDC newUnsupportedToken = new MockUSDC(
+            address(this),
+            address(this)
+        );
+
+        // 3. Attempt to deposit
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.TokenNotSupported.selector,
+                address(newUnsupportedToken)
+            )
+        );
+        i_qrbnTreasury.depositFees(address(newUnsupportedToken), 100e6);
+    }
+
+    function test_Treasury_AddAndRemoveToken() public {
+        // 1. Create a new mock token
+        MockUSDC newToken = new MockUSDC(address(this), address(this));
+        address tokenAddress = address(newToken);
+
+        // 2. Add the token
+        vm.expectEmit(true, true, false, false);
+        emit QrbnTreasury.TokenAdded(tokenAddress);
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.addToken(tokenAddress);
+        assertEq(i_qrbnTreasury.isSupportedToken(tokenAddress), true);
+        assertEq(i_qrbnTreasury.getSupportedTokensCount(), 2);
+
+        // 3. Remove the token
+        vm.expectEmit(true, true, false, false);
+        emit QrbnTreasury.TokenRemoved(tokenAddress);
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.removeToken(tokenAddress);
+        assertEq(i_qrbnTreasury.isSupportedToken(tokenAddress), false);
+        assertEq(i_qrbnTreasury.getSupportedTokensCount(), 1);
+    }
+
+    function test_Treasury_Fails_RemoveTokenWithBalance() public {
+        // 1. Add a new token
+        MockUSDC newToken = new MockUSDC(address(this), address(this));
+        address tokenAddress = address(newToken);
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.addToken(tokenAddress);
+
+        // 2. Deposit some of the new token
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.authorizeDepositor(address(this));
+        uint256 depositAmount = 50e6;
+        newToken.mint(address(this), depositAmount);
+        newToken.approve(address(i_qrbnTreasury), depositAmount);
+        i_qrbnTreasury.depositFees(tokenAddress, depositAmount);
+
+        // 3. Attempt to remove the token
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.TokenBalanceNotZero.selector,
+                tokenAddress
+            )
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.removeToken(tokenAddress);
+    }
+
+    function test_Treasury_Fails_DeauthorizeNonAuthorizedDepositor() public {
+        address nonDepositor = makeAddr("nonDepositor");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.DepositorNotAuthorized.selector,
+                nonDepositor
+            )
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qrbnTreasury.deauthorizeDepositor(nonDepositor);
     }
 
     // ============ HELPER FUNCTIONS ============

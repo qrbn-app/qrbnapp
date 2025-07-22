@@ -8,6 +8,7 @@ import {QrbnToken} from "../src/dao/QrbnToken.sol";
 import {QrbnGov} from "../src/dao/QrbnGov.sol";
 import {QrbnTimelock} from "../src/dao/QrbnTimelock.sol";
 import {Qurban} from "../src/qurban/Qurban.sol";
+import {QrbnTreasury} from "../src/dao/QrbnTreasury.sol";
 import {Constants} from "../src/lib/Constants.sol";
 
 contract DeployQrbn is Script {
@@ -16,7 +17,17 @@ contract DeployQrbn is Script {
         address _syariahCouncilAddress,
         address _orgRepAddress,
         address _communityRepAddress
-    ) public returns (QrbnTimelock, QrbnGov, QrbnToken, Qurban, QurbanNFT) {
+    )
+        public
+        returns (
+            QrbnTimelock,
+            QrbnGov,
+            QrbnToken,
+            Qurban,
+            QurbanNFT,
+            QrbnTreasury
+        )
+    {
         DeployConfig deployConfig = new DeployConfig();
         DeployConfig.NetworkConfig memory networkConfig = deployConfig
             .getNetworkConfig();
@@ -39,7 +50,17 @@ contract DeployQrbn is Script {
         address _orgRepAddress,
         address _communityRepAddress,
         bool _isTest
-    ) public returns (QrbnTimelock, QrbnGov, QrbnToken, Qurban, QurbanNFT) {
+    )
+        public
+        returns (
+            QrbnTimelock,
+            QrbnGov,
+            QrbnToken,
+            Qurban,
+            QurbanNFT,
+            QrbnTreasury
+        )
+    {
         uint256 minExecutionDelay;
         uint48 votingDelay;
         uint32 votingPeriod;
@@ -82,13 +103,19 @@ contract DeployQrbn is Script {
             quorumFraction
         );
 
-        // QURBAN
+        // QURBAN & TREASURY
+        QurbanNFT qurbanNFT = new QurbanNFT(address(timelock), msg.sender);
+        QrbnTreasury treasury = new QrbnTreasury(
+            address(timelock),
+            msg.sender,
+            _usdcTokenAddress
+        );
         Qurban qurban = new Qurban(
             _usdcTokenAddress,
+            address(treasury),
             address(timelock),
             msg.sender
         );
-        QurbanNFT qurbanNFT = new QurbanNFT(address(timelock), msg.sender);
 
         // GRANTS
         timelock.grantRole(timelock.PROPOSER_ROLE(), address(gov));
@@ -96,14 +123,22 @@ contract DeployQrbn is Script {
         timelock.revokeRole(timelock.DEFAULT_ADMIN_ROLE(), msg.sender);
 
         token.grantRole(token.GOVERNER_ROLE(), msg.sender);
+
         token.mint(_founderAddress, 1 * 10 ** token.decimals());
         token.mint(_syariahCouncilAddress, 1 * 10 ** token.decimals());
         token.mint(_orgRepAddress, 1 * 10 ** token.decimals());
         token.mint(_communityRepAddress, 1 * 10 ** token.decimals());
+
         token.revokeRole(token.GOVERNER_ROLE(), msg.sender);
         token.revokeRole(token.DEFAULT_ADMIN_ROLE(), msg.sender);
 
         qurbanNFT.grantRole(qurbanNFT.GOVERNER_ROLE(), address(qurban));
+
+        // TREASURY CONFIGURATION
+        treasury.grantRole(treasury.GOVERNER_ROLE(), msg.sender);
+        treasury.authorizeDepositor(address(qurban));
+        treasury.revokeRole(treasury.GOVERNER_ROLE(), msg.sender);
+        treasury.revokeRole(treasury.DEFAULT_ADMIN_ROLE(), msg.sender);
 
         if (block.chainid == Constants.LISK_CHAINID) {
             qurban.revokeRole(qurban.DEFAULT_ADMIN_ROLE(), msg.sender);
@@ -119,6 +154,6 @@ contract DeployQrbn is Script {
             vm.stopBroadcast();
         }
 
-        return (timelock, gov, token, qurban, qurbanNFT);
+        return (timelock, gov, token, qurban, qurbanNFT, treasury);
     }
 }

@@ -3,7 +3,11 @@ pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Governed} from "../dao/Governed.sol";
-import {QurbanErrors} from "./QurbanErrors.sol";
+import {Errors} from "../lib/Errors.sol";
+
+interface IQrbnTreasury {
+    function depositFees(address token, uint256 amount) external;
+}
 
 contract Qurban is Governed {
     enum AnimalType {
@@ -77,6 +81,7 @@ contract Qurban is Governed {
     mapping(address => uint256[]) public s_vendorAnimalIds;
 
     IERC20 public immutable i_usdc;
+    IQrbnTreasury public immutable i_treasury;
 
     event VendorRegistered(
         address indexed vendorAddress,
@@ -112,22 +117,30 @@ contract Qurban is Governed {
         uint256 animalId,
         uint256 transactionId
     );
+    event TreasuryUpdated(
+        address indexed oldTreasury,
+        address indexed newTreasury
+    );
+    event PlatformFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
+    event FeesDeposited(address indexed treasury, uint256 amount);
 
     constructor(
         address _usdcTokenAddress,
+        address _treasuryAddress,
         address _timelockAddress,
         address _tempAdminAddress
     ) Governed(_timelockAddress, _tempAdminAddress) {
         i_usdc = IERC20(_usdcTokenAddress);
+        i_treasury = IQrbnTreasury(_treasuryAddress);
     }
 
     modifier checkVendor(address _vendorAddress) {
         if (_vendorAddress == address(0))
-            revert QurbanErrors.AddressZero("vendorAddress");
+            revert Errors.AddressZero("vendorAddress");
         if (!s_registeredVendors[_vendorAddress])
-            revert QurbanErrors.NotRegistered("vendor");
+            revert Errors.NotRegistered("vendor");
         if (!s_vendors[_vendorAddress].isVerified)
-            revert QurbanErrors.NotVerified("vendor");
+            revert Errors.NotVerified("vendor");
         _;
     }
 
@@ -138,10 +151,10 @@ contract Qurban is Governed {
         string calldata _location
     ) external onlyRole(GOVERNER_ROLE) {
         if (_vendorAddress == address(0))
-            revert QurbanErrors.AddressZero("vendorAddress");
+            revert Errors.AddressZero("vendorAddress");
         if (s_registeredVendors[_vendorAddress])
-            revert QurbanErrors.AlreadyRegistered("vendor");
-        if (bytes(_name).length == 0) revert QurbanErrors.EmptyString("name");
+            revert Errors.AlreadyRegistered("vendor");
+        if (bytes(_name).length == 0) revert Errors.EmptyString("name");
 
         uint256 vendorId = _nextVendorId++;
 
@@ -168,10 +181,10 @@ contract Qurban is Governed {
         string calldata _location
     ) external onlyRole(GOVERNER_ROLE) {
         if (_vendorAddress == address(0))
-            revert QurbanErrors.AddressZero("vendorAddress");
+            revert Errors.AddressZero("vendorAddress");
         if (!s_registeredVendors[_vendorAddress])
-            revert QurbanErrors.NotRegistered("vendor");
-        if (bytes(_name).length == 0) revert QurbanErrors.EmptyString("name");
+            revert Errors.NotRegistered("vendor");
+        if (bytes(_name).length == 0) revert Errors.EmptyString("name");
 
         Vendor storage vendor = s_vendors[_vendorAddress];
 
@@ -186,11 +199,11 @@ contract Qurban is Governed {
         address _vendorAddress
     ) external onlyRole(GOVERNER_ROLE) {
         if (!s_registeredVendors[_vendorAddress])
-            revert QurbanErrors.NotRegistered("vendor");
+            revert Errors.NotRegistered("vendor");
 
         Vendor storage vendor = s_vendors[_vendorAddress];
 
-        if (vendor.isVerified) revert QurbanErrors.AlreadyVerified("vendor");
+        if (vendor.isVerified) revert Errors.AlreadyVerified("vendor");
 
         vendor.isVerified = true;
 
@@ -205,11 +218,11 @@ contract Qurban is Governed {
         address _vendorAddress
     ) external onlyRole(GOVERNER_ROLE) {
         if (!s_registeredVendors[_vendorAddress])
-            revert QurbanErrors.NotRegistered("vendor");
+            revert Errors.NotRegistered("vendor");
 
         Vendor storage vendor = s_vendors[_vendorAddress];
 
-        if (!vendor.isVerified) revert QurbanErrors.AlreadyUnverified("vendor");
+        if (!vendor.isVerified) revert Errors.AlreadyUnverified("vendor");
 
         vendor.isVerified = false;
 
@@ -235,23 +248,20 @@ contract Qurban is Governed {
         string calldata _farmName,
         uint256 _sacrificeDate
     ) external onlyRole(GOVERNER_ROLE) checkVendor(_vendorAddress) {
-        if (bytes(_name).length == 0) revert QurbanErrors.EmptyString("name");
-        if (bytes(_location).length == 0)
-            revert QurbanErrors.EmptyString("location");
-        if (bytes(_image).length == 0) revert QurbanErrors.EmptyString("image");
+        if (bytes(_name).length == 0) revert Errors.EmptyString("name");
+        if (bytes(_location).length == 0) revert Errors.EmptyString("location");
+        if (bytes(_image).length == 0) revert Errors.EmptyString("image");
         if (bytes(_description).length == 0)
-            revert QurbanErrors.EmptyString("description");
-        if (bytes(_breed).length == 0) revert QurbanErrors.EmptyString("breed");
-        if (bytes(_farmName).length == 0)
-            revert QurbanErrors.EmptyString("farmName");
+            revert Errors.EmptyString("description");
+        if (bytes(_breed).length == 0) revert Errors.EmptyString("breed");
+        if (bytes(_farmName).length == 0) revert Errors.EmptyString("farmName");
         if (_totalShares == 0 || _totalShares > s_maxShares)
-            revert QurbanErrors.InvalidAmount("totalShares");
-        if (_pricePerShare == 0)
-            revert QurbanErrors.InvalidAmount("pricePerShare");
-        if (_weight == 0) revert QurbanErrors.InvalidAmount("weight");
-        if (_age == 0) revert QurbanErrors.InvalidAmount("age");
+            revert Errors.InvalidAmount("totalShares");
+        if (_pricePerShare == 0) revert Errors.InvalidAmount("pricePerShare");
+        if (_weight == 0) revert Errors.InvalidAmount("weight");
+        if (_age == 0) revert Errors.InvalidAmount("age");
         if (_sacrificeDate <= block.timestamp)
-            revert QurbanErrors.InvalidDate("sacrificeDate");
+            revert Errors.InvalidDate("sacrificeDate");
 
         uint256 animalId = _nextAnimalId++;
 
@@ -297,24 +307,21 @@ contract Qurban is Governed {
         uint256 _sacrificeDate
     ) external onlyRole(GOVERNER_ROLE) checkVendor(_vendorAddress) {
         if (s_animals[_animalId].vendorAddress != _vendorAddress)
-            revert QurbanErrors.Forbidden("vendorAddress");
-        if (bytes(_name).length == 0) revert QurbanErrors.EmptyString("name");
-        if (bytes(_location).length == 0)
-            revert QurbanErrors.EmptyString("location");
-        if (bytes(_image).length == 0) revert QurbanErrors.EmptyString("image");
+            revert Errors.Forbidden("vendorAddress");
+        if (bytes(_name).length == 0) revert Errors.EmptyString("name");
+        if (bytes(_location).length == 0) revert Errors.EmptyString("location");
+        if (bytes(_image).length == 0) revert Errors.EmptyString("image");
         if (bytes(_description).length == 0)
-            revert QurbanErrors.EmptyString("description");
-        if (bytes(_breed).length == 0) revert QurbanErrors.EmptyString("breed");
-        if (bytes(_farmName).length == 0)
-            revert QurbanErrors.EmptyString("farmName");
+            revert Errors.EmptyString("description");
+        if (bytes(_breed).length == 0) revert Errors.EmptyString("breed");
+        if (bytes(_farmName).length == 0) revert Errors.EmptyString("farmName");
         if (_totalShares == 0 || _totalShares > s_maxShares)
-            revert QurbanErrors.InvalidAmount("totalShares");
-        if (_pricePerShare == 0)
-            revert QurbanErrors.InvalidAmount("pricePerShare");
-        if (_weight == 0) revert QurbanErrors.InvalidAmount("weight");
-        if (_age == 0) revert QurbanErrors.InvalidAmount("age");
+            revert Errors.InvalidAmount("totalShares");
+        if (_pricePerShare == 0) revert Errors.InvalidAmount("pricePerShare");
+        if (_weight == 0) revert Errors.InvalidAmount("weight");
+        if (_age == 0) revert Errors.InvalidAmount("age");
         if (_sacrificeDate <= block.timestamp)
-            revert QurbanErrors.InvalidDate("sacrificeDate");
+            revert Errors.InvalidDate("sacrificeDate");
 
         Animal storage animal = s_animals[_animalId];
 
@@ -338,7 +345,7 @@ contract Qurban is Governed {
     function approveAnimal(uint256 _animalId) external onlyRole(GOVERNER_ROLE) {
         Animal storage animal = s_animals[_animalId];
         if (animal.status == AnimalStatus.AVAILABLE)
-            revert QurbanErrors.AlreadyAvailable("animal");
+            revert Errors.AlreadyAvailable("animal");
 
         animal.status = AnimalStatus.AVAILABLE;
         emit AnimalStatusUpdated(_animalId, AnimalStatus.AVAILABLE);
@@ -349,9 +356,9 @@ contract Qurban is Governed {
     ) external onlyRole(GOVERNER_ROLE) {
         Animal storage animal = s_animals[_animalId];
         if (animal.status == AnimalStatus.PENDING)
-            revert QurbanErrors.AlreadyPending("animal");
+            revert Errors.AlreadyPending("animal");
         if (animal.availableShares < animal.totalShares)
-            revert QurbanErrors.AlreadyPurchased("animal");
+            revert Errors.AlreadyPurchased("animal");
 
         animal.status = AnimalStatus.PENDING;
         emit AnimalStatusUpdated(_animalId, AnimalStatus.PENDING);
@@ -364,15 +371,21 @@ contract Qurban is Governed {
         Animal storage animal = s_animals[_animalId];
 
         if (animal.status != AnimalStatus.AVAILABLE)
-            revert QurbanErrors.NotAvailable("animal");
+            revert Errors.NotAvailable("animal");
         if (_shareAmount == 0 || animal.availableShares < _shareAmount)
-            revert QurbanErrors.InvalidAmount("shareAmount");
+            revert Errors.InvalidAmount("shareAmount");
 
         uint256 totalPaid = _shareAmount * animal.pricePerShare;
         uint256 platformFee = (totalPaid * s_platformFeeBps) / BPS_BASE;
         uint256 vendorShare = totalPaid - platformFee;
 
         i_usdc.transferFrom(msg.sender, address(this), totalPaid);
+
+        if (platformFee > 0) {
+            i_usdc.approve(address(i_treasury), platformFee);
+            i_treasury.depositFees(address(i_usdc), platformFee);
+            emit FeesDeposited(address(i_treasury), platformFee);
+        }
 
         s_vendors[animal.vendorAddress].totalSales += vendorShare;
         animal.availableShares -= _shareAmount;
@@ -396,5 +409,36 @@ contract Qurban is Governed {
         s_buyerTransactionIds[msg.sender].push(transactionId);
 
         emit AnimalPurchased(msg.sender, _animalId, transactionId);
+    }
+
+    function setPlatformFee(
+        uint256 _newFeeBps
+    ) external onlyRole(GOVERNER_ROLE) {
+        if (_newFeeBps > 1000) {
+            // Maximum 10% fee
+            revert Errors.InvalidAmount("platformFee");
+        }
+
+        uint256 oldFeeBps = s_platformFeeBps;
+        s_platformFeeBps = _newFeeBps;
+        emit PlatformFeeUpdated(oldFeeBps, _newFeeBps);
+    }
+
+    function withdrawFeesToTreasury() external onlyRole(GOVERNER_ROLE) {
+        uint256 contractBalance = i_usdc.balanceOf(address(this));
+        if (contractBalance > 0) {
+            i_usdc.approve(address(i_treasury), contractBalance);
+            i_treasury.depositFees(address(i_usdc), contractBalance);
+            emit FeesDeposited(address(i_treasury), contractBalance);
+        }
+    }
+
+    function getPlatformFeeInfo()
+        external
+        view
+        returns (uint256 feeBps, uint256 feePercentage)
+    {
+        feeBps = s_platformFeeBps;
+        feePercentage = (s_platformFeeBps * 100) / BPS_BASE;
     }
 }
