@@ -6,28 +6,23 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import {Governed} from "../dao/Governed.sol";
 
-contract QurbanNFT is
-    ERC721,
-    ERC721Enumerable,
-    ERC721URIStorage,
-    AccessControl
-{
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+contract QurbanNFT is ERC721, ERC721Enumerable, ERC721URIStorage, Governed {
     uint256 private _nextTokenId = 1;
 
     constructor(
-        address defaultAdmin,
-        address minter
-    ) ERC721("QurbanNFT", "QRBN") {
-        _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
-        _grantRole(MINTER_ROLE, minter);
-    }
+        address _timelockAddress,
+        address _tempAdminAddress
+    )
+        ERC721("Qurban Sacrifice NFT", "QRBNFT")
+        Governed(_timelockAddress, _tempAdminAddress)
+    {}
 
     function safeMint(
         address to,
         string memory uri
-    ) public onlyRole(MINTER_ROLE) returns (uint256) {
+    ) public onlyRole(GOVERNER_ROLE) returns (uint256) {
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
