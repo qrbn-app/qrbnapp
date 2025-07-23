@@ -4,10 +4,12 @@ pragma solidity ^0.8.27;
 import {Script} from "forge-std/Script.sol";
 import {DeployConfig} from "./DeployConfig.sol";
 import {QurbanNFT} from "../src/qurban/QurbanNFT.sol";
+import {ZakatNFT} from "../src/zakat/ZakatNFT.sol"; 
 import {QrbnToken} from "../src/dao/QrbnToken.sol";
 import {QrbnGov} from "../src/dao/QrbnGov.sol";
 import {QrbnTimelock} from "../src/dao/QrbnTimelock.sol";
 import {Qurban} from "../src/qurban/Qurban.sol";
+import {Zakat} from "../src/zakat/Zakat.sol";
 import {QrbnTreasury} from "../src/dao/QrbnTreasury.sol";
 import {Constants} from "../src/lib/Constants.sol";
 
@@ -25,6 +27,8 @@ contract DeployQrbn is Script {
             QrbnToken,
             Qurban,
             QurbanNFT,
+            Zakat,
+            ZakatNFT,
             QrbnTreasury
         )
     {
@@ -58,6 +62,8 @@ contract DeployQrbn is Script {
             QrbnToken,
             Qurban,
             QurbanNFT,
+            Zakat,
+            ZakatNFT,
             QrbnTreasury
         )
     {
@@ -118,6 +124,15 @@ contract DeployQrbn is Script {
             msg.sender
         );
 
+        ZakatNFT zakatNFT = new ZakatNFT(address(timelock), msg.sender);
+        Zakat zakat = new Zakat(
+            _usdcTokenAddress,
+            address(treasury),
+            address(timelock),
+            address(zakatNFT),
+            msg.sender
+        );
+
         // GRANTS
         timelock.grantRole(timelock.PROPOSER_ROLE(), address(gov));
         timelock.grantRole(timelock.CANCELLER_ROLE(), _syariahCouncilAddress);
@@ -134,19 +149,26 @@ contract DeployQrbn is Script {
         token.revokeRole(token.DEFAULT_ADMIN_ROLE(), msg.sender);
 
         qurbanNFT.grantRole(qurbanNFT.GOVERNER_ROLE(), address(qurban));
+        zakatNFT.grantRole(zakatNFT.GOVERNER_ROLE(), address(zakat));  
+
 
         // TREASURY CONFIGURATION
         treasury.grantRole(treasury.GOVERNER_ROLE(), msg.sender);
         treasury.authorizeDepositor(address(qurban));
+        treasury.authorizeDepositor(address(zakat));
         treasury.revokeRole(treasury.GOVERNER_ROLE(), msg.sender);
         treasury.revokeRole(treasury.DEFAULT_ADMIN_ROLE(), msg.sender);
 
         if (block.chainid == Constants.LISK_CHAINID) {
             qurban.revokeRole(qurban.DEFAULT_ADMIN_ROLE(), msg.sender);
             qurbanNFT.revokeRole(qurbanNFT.DEFAULT_ADMIN_ROLE(), msg.sender);
+            zakat.revokeRole(zakat.DEFAULT_ADMIN_ROLE(), msg.sender);     
+            zakatNFT.revokeRole(zakatNFT.DEFAULT_ADMIN_ROLE(), msg.sender);
         } else {
             qurban.grantRole(qurban.GOVERNER_ROLE(), msg.sender);
             qurbanNFT.grantRole(qurbanNFT.GOVERNER_ROLE(), msg.sender);
+            zakat.grantRole(zakat.GOVERNER_ROLE(), msg.sender);      
+            zakatNFT.grantRole(zakatNFT.GOVERNER_ROLE(), msg.sender);
         }
 
         if (_isTest) {
@@ -155,6 +177,6 @@ contract DeployQrbn is Script {
             vm.stopBroadcast();
         }
 
-        return (timelock, gov, token, qurban, qurbanNFT, treasury);
+        return (timelock, gov, token, qurban, qurbanNFT, zakat, zakatNFT, treasury);  
     }
 }
