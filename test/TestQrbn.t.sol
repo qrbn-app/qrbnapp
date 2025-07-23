@@ -44,6 +44,8 @@ contract TestQrbn is Test {
             i_qrbnToken,
             i_qurban,
             i_qurbanNFT,
+            ,
+            ,
             i_qrbnTreasury
         ) = deployScript.runDeploy(
             networkConfig.usdcTokenAddress,
