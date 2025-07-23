@@ -3,42 +3,48 @@
 pragma solidity ^0.8.27;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {ERC20Pausable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Governed} from "./Governed.sol";
 
-contract QurbanToken is
+contract QrbnToken is
     ERC20,
     ERC20Burnable,
     ERC20Pausable,
-    Ownable,
     ERC20Permit,
-    ERC20Votes
+    ERC20Votes,
+    Governed
 {
+    error TokenNotTransferrable();
+
     constructor(
-        address recipient,
-        address initialOwner
+        address _timelockAddress,
+        address _tempAdminAddress
     )
-        ERC20("QurbanToken", "QRT")
-        Ownable(initialOwner)
-        ERC20Permit("QurbanToken")
-    {
-        _mint(recipient, 10000 * 10 ** decimals());
+        ERC20("QRBN", "QRBN")
+        ERC20Permit("QRBN")
+        Governed(_timelockAddress, _tempAdminAddress)
+    {}
+
+    function decimals() public pure override returns (uint8) {
+        return 2;
     }
 
-    function pause() public onlyOwner {
+    function pause() public onlyRole(GOVERNER_ROLE) {
         _pause();
     }
 
-    function unpause() public onlyOwner {
+    function unpause() public onlyRole(GOVERNER_ROLE) {
         _unpause();
     }
 
-    function mint(address to, uint256 amount) public onlyOwner {
+    function mint(address to, uint256 amount) public onlyRole(GOVERNER_ROLE) {
         _mint(to, amount);
+        _delegate(to, to);
     }
 
     function clock() public view override returns (uint48) {
@@ -57,6 +63,10 @@ contract QurbanToken is
         address to,
         uint256 value
     ) internal override(ERC20, ERC20Pausable, ERC20Votes) {
+        if (from != address(0) && to != address(0)) {
+            revert TokenNotTransferrable();
+        }
+
         super._update(from, to, value);
     }
 
