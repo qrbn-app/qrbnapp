@@ -33,7 +33,7 @@ contract TestQrbn is Test {
     address immutable i_anotherVendor = makeAddr("anotherVendor");
 
     function setUp() public {
-        DeployConfig deployConfig = new DeployConfig();
+        DeployConfig deployConfig = new DeployConfig(i_deployer, i_deployer);
         DeployConfig.NetworkConfig memory networkConfig = deployConfig
             .getNetworkConfig();
 
@@ -54,7 +54,7 @@ contract TestQrbn is Test {
             true
         );
 
-        i_mockUSDC = MockUSDC(address(i_qurban.i_usdc()));
+        i_mockUSDC = MockUSDC(networkConfig.usdcTokenAddress);
 
         if (
             block.chainid != Constants.LISK_CHAINID &&
@@ -731,11 +731,8 @@ contract TestQrbn is Test {
         // Setup
         _setupStandardVendorWithAnimal();
 
-        address usdcAddress = address(i_qurban.i_usdc());
-        MockUSDC usdc = MockUSDC(usdcAddress);
-
         vm.prank(i_buyer);
-        usdc.approve(address(i_qurban), 1000e6);
+        i_mockUSDC.approve(address(i_qurban), 1000e6);
 
         // Purchase all shares
         vm.prank(i_buyer);

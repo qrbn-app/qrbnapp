@@ -28,7 +28,7 @@ contract DeployQrbn is Script {
             QrbnTreasury
         )
     {
-        DeployConfig deployConfig = new DeployConfig();
+        DeployConfig deployConfig = new DeployConfig(msg.sender, msg.sender);
         DeployConfig.NetworkConfig memory networkConfig = deployConfig
             .getNetworkConfig();
 

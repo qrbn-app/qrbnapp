@@ -16,13 +16,14 @@ contract DeployConfig is Script {
 
     NetworkConfig private _networkConfig;
 
-    constructor() {
+    constructor(address _mockRecipient, address _mockOwner) {
         if (block.chainid == Constants.LISK_CHAINID) {
             _networkConfig = getLiskNetworkConfig();
-        } else if (block.chainid == Constants.LISK_SEPOLIA_CHAINID) {
-            _networkConfig = getLiskSepoliaNetworkConfig();
-        } else {
-            _networkConfig = getLocalNetworkConfig();
+        } else if (
+            block.chainid == Constants.LISK_SEPOLIA_CHAINID ||
+            block.chainid == Constants.ANVIL_CHAINID
+        ) {
+            _networkConfig = getTestnetConfig(_mockRecipient, _mockOwner);
         }
     }
 
@@ -37,24 +38,16 @@ contract DeployConfig is Script {
             });
     }
 
-    function getLiskSepoliaNetworkConfig()
-        public
-        pure
-        returns (NetworkConfig memory)
-    {
-        return
-            NetworkConfig({
-                usdcTokenAddress: 0x0E82fDDAd51cc3ac12b69761C45bBCB9A2Bf3C83
-            });
-    }
-
-    function getLocalNetworkConfig() public returns (NetworkConfig memory) {
+    function getTestnetConfig(
+        address _recipient,
+        address _owner
+    ) public returns (NetworkConfig memory) {
         if (_networkConfig.usdcTokenAddress != address(0)) {
             return _networkConfig;
         }
 
         vm.startBroadcast();
-        MockUSDC mockUSDC = new MockUSDC(msg.sender, msg.sender);
+        MockUSDC mockUSDC = new MockUSDC(_recipient, _owner);
         vm.stopBroadcast();
 
         return NetworkConfig({usdcTokenAddress: address(mockUSDC)});
