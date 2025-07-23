@@ -64,7 +64,7 @@ contract DeployQrbn is Script {
         uint256 minExecutionDelay;
         uint48 votingDelay;
         uint32 votingPeriod;
-        uint64 proposalThreshold = 1;
+        uint64 proposalThreshold = 1e2;
         uint256 quorumFraction = 75;
 
         if (block.chainid == Constants.LISK_CHAINID) {
@@ -114,6 +114,7 @@ contract DeployQrbn is Script {
             _usdcTokenAddress,
             address(treasury),
             address(timelock),
+            address(qurbanNFT),
             msg.sender
         );
 

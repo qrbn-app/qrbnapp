@@ -9,6 +9,10 @@ interface IQrbnTreasury {
     function depositFees(address token, uint256 amount) external;
 }
 
+interface IQurbanNFT {
+    function safeMint(address to, string memory uri) external returns (uint256);
+}
+
 contract Qurban is Governed {
     enum AnimalType {
         SHEEP,
@@ -60,6 +64,8 @@ contract Qurban is Governed {
         uint256 nftCertificateId;
         uint256 pricePerShare;
         uint256 totalPaid;
+        uint256 fee;
+        uint256 vendorShare;
         uint256 timestamp;
         uint8 shareAmount;
         address buyer;
@@ -68,6 +74,10 @@ contract Qurban is Governed {
     uint256 private _nextAnimalId;
     uint256 private _nextTransactionId;
     uint256 private _nextVendorId;
+
+    uint256 public s_totalCollectedFunds;
+    uint256 public s_totalCollectedFees;
+    uint256 public s_vendorSharesPool;
 
     uint256 public s_platformFeeBps = 250; // 2.5%
     uint8 public s_maxShares = 7;
@@ -79,9 +89,13 @@ contract Qurban is Governed {
     mapping(uint256 => Transaction) public s_buyerTransactions;
     mapping(address => uint256[]) public s_buyerTransactionIds;
     mapping(address => uint256[]) public s_vendorAnimalIds;
+    mapping(uint256 => address[]) public s_animalBuyers;
+    mapping(uint256 => mapping(address => uint256[]))
+        public s_animalBuyerTransactionIds;
 
     IERC20 public immutable i_usdc;
     IQrbnTreasury public immutable i_treasury;
+    IQurbanNFT public immutable i_qurbanNFT;
 
     event VendorRegistered(
         address indexed vendorAddress,
@@ -123,21 +137,47 @@ contract Qurban is Governed {
     );
     event PlatformFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
     event FeesDeposited(address indexed treasury, uint256 amount);
+    event AnimalSacrificed(
+        uint256 indexed animalId,
+        uint256 sacrificeTimestamp
+    );
+    event NFTCertificatesMinted(
+        uint256 indexed animalId,
+        uint256 totalCertificates
+    );
+    event AnimalRefunded(
+        uint256 indexed animalId,
+        uint256 totalRefunded,
+        string reason
+    );
+    event BuyerRefunded(
+        address indexed buyer,
+        uint256 animalId,
+        uint256 amount,
+        string reason
+    );
+    event VendorShareDistributed(
+        address indexed vendor,
+        uint256 indexed animalId,
+        uint256 amount
+    );
 
     constructor(
         address _usdcTokenAddress,
         address _treasuryAddress,
         address _timelockAddress,
+        address _qurbanNFTAddress,
         address _tempAdminAddress
     ) Governed(_timelockAddress, _tempAdminAddress) {
         i_usdc = IERC20(_usdcTokenAddress);
         i_treasury = IQrbnTreasury(_treasuryAddress);
+        i_qurbanNFT = IQurbanNFT(_qurbanNFTAddress);
     }
 
     modifier checkVendor(address _vendorAddress) {
         if (_vendorAddress == address(0))
             revert Errors.AddressZero("vendorAddress");
-        if (!s_registeredVendors[_vendorAddress])
+        if (!isVendorRegistered(_vendorAddress))
             revert Errors.NotRegistered("vendor");
         if (!s_vendors[_vendorAddress].isVerified)
             revert Errors.NotVerified("vendor");
@@ -381,18 +421,15 @@ contract Qurban is Governed {
 
         i_usdc.transferFrom(msg.sender, address(this), totalPaid);
 
-        if (platformFee > 0) {
-            i_usdc.approve(address(i_treasury), platformFee);
-            i_treasury.depositFees(address(i_usdc), platformFee);
-            emit FeesDeposited(address(i_treasury), platformFee);
-        }
-
         s_vendors[animal.vendorAddress].totalSales += vendorShare;
         animal.availableShares -= _shareAmount;
 
         if (animal.availableShares == 0) {
             animal.status = AnimalStatus.SOLD;
         }
+
+        s_totalCollectedFunds += totalPaid;
+        s_vendorSharesPool += vendorShare;
 
         uint256 transactionId = _nextTransactionId++;
         s_buyerTransactions[transactionId] = Transaction({
@@ -401,6 +438,8 @@ contract Qurban is Governed {
             nftCertificateId: 0,
             pricePerShare: animal.pricePerShare,
             totalPaid: totalPaid,
+            fee: platformFee,
+            vendorShare: vendorShare,
             timestamp: block.timestamp,
             shareAmount: _shareAmount,
             buyer: msg.sender
@@ -408,7 +447,164 @@ contract Qurban is Governed {
 
         s_buyerTransactionIds[msg.sender].push(transactionId);
 
+        if (s_animalBuyerTransactionIds[_animalId][msg.sender].length == 0) {
+            s_animalBuyers[_animalId].push(msg.sender);
+        }
+        s_animalBuyerTransactionIds[_animalId][msg.sender].push(transactionId);
+
         emit AnimalPurchased(msg.sender, _animalId, transactionId);
+    }
+
+    function markAnimalSacrificedAndMintCertificates(
+        uint256 _animalId,
+        string calldata _certificateURI
+    ) external onlyRole(GOVERNER_ROLE) {
+        Animal storage animal = s_animals[_animalId];
+
+        if (animal.status != AnimalStatus.SOLD)
+            revert Errors.NotAvailable("animal for sacrifice");
+        if (bytes(_certificateURI).length == 0)
+            revert Errors.EmptyString("certificateURI");
+
+        animal.status = AnimalStatus.SACRIFICED;
+
+        uint256 totalVendorShare;
+        uint256 totalFee;
+        uint256 totalCertificates;
+        address[] memory buyers = s_animalBuyers[_animalId];
+
+        // Mint NFT certificates for all buyers
+        for (uint256 i = 0; i < buyers.length; i++) {
+            address buyer = buyers[i];
+            uint256[] memory transactionIds = s_animalBuyerTransactionIds[
+                _animalId
+            ][buyer];
+
+            for (uint256 j = 0; j < transactionIds.length; j++) {
+                uint256 txnId = transactionIds[j];
+                Transaction storage txn = s_buyerTransactions[txnId];
+
+                if (txn.nftCertificateId == 0) {
+                    string memory uniqueURI = string(
+                        abi.encodePacked(
+                            _certificateURI,
+                            "/",
+                            _animalId,
+                            "/",
+                            txnId
+                        )
+                    );
+
+                    uint256 nftCertificateId = i_qurbanNFT.safeMint(
+                        buyer,
+                        uniqueURI
+                    );
+                    txn.nftCertificateId = nftCertificateId;
+                    totalCertificates++;
+                    totalFee += txn.fee;
+                    totalVendorShare += txn.vendorShare;
+                }
+            }
+        }
+
+        if (totalFee > 0) {
+            if (i_usdc.balanceOf(address(this)) < totalFee)
+                revert Errors.InsufficientBalance(
+                    address(i_usdc),
+                    i_usdc.balanceOf(address(this)),
+                    totalFee
+                );
+
+            i_usdc.approve(address(i_treasury), totalFee);
+            i_treasury.depositFees(address(i_usdc), totalFee);
+            s_totalCollectedFees += totalFee;
+            emit FeesDeposited(address(i_treasury), totalFee);
+        }
+
+        if (totalVendorShare > 0) {
+            if (s_vendorSharesPool < totalVendorShare)
+                revert Errors.InsufficientBalance(
+                    address(i_usdc),
+                    s_vendorSharesPool,
+                    totalVendorShare
+                );
+            if (i_usdc.balanceOf(address(this)) < totalVendorShare)
+                revert Errors.InsufficientBalance(
+                    address(i_usdc),
+                    i_usdc.balanceOf(address(this)),
+                    totalVendorShare
+                );
+
+            i_usdc.transfer(animal.vendorAddress, totalVendorShare);
+            s_vendorSharesPool -= totalVendorShare;
+            emit VendorShareDistributed(
+                animal.vendorAddress,
+                _animalId,
+                totalVendorShare
+            );
+        }
+
+        emit AnimalSacrificed(_animalId, block.timestamp);
+        emit NFTCertificatesMinted(_animalId, totalCertificates);
+    }
+
+    function refundAnimalPurchases(
+        uint256 _animalId,
+        string calldata _reason
+    ) external onlyRole(GOVERNER_ROLE) {
+        Animal storage animal = s_animals[_animalId];
+
+        if (animal.status != AnimalStatus.SOLD)
+            revert Errors.NotAvailable("animal for refund");
+        if (bytes(_reason).length == 0) revert Errors.EmptyString("reason");
+
+        address[] memory buyers = s_animalBuyers[_animalId];
+        uint256 totalRefunded;
+
+        for (uint256 i = 0; i < buyers.length; i++) {
+            address buyer = buyers[i];
+            uint256[] memory transactionIds = s_animalBuyerTransactionIds[
+                _animalId
+            ][buyer];
+            uint256 buyerRefundAmount;
+            uint256 vendorShareToDeduct;
+
+            for (uint256 j = 0; j < transactionIds.length; j++) {
+                uint256 txnId = transactionIds[j];
+                Transaction storage txn = s_buyerTransactions[txnId];
+
+                if (txn.animalId == _animalId && txn.nftCertificateId == 0) {
+                    buyerRefundAmount += txn.totalPaid;
+                    vendorShareToDeduct += txn.vendorShare;
+
+                    // Mark transaction as refunded by setting a special nftCertificateId
+                    txn.nftCertificateId = type(uint256).max; // Use max uint256 to indicate refund
+                }
+            }
+
+            if (buyerRefundAmount > 0) {
+                s_vendors[animal.vendorAddress]
+                    .totalSales -= vendorShareToDeduct;
+
+                s_totalCollectedFunds -= buyerRefundAmount;
+                s_vendorSharesPool -= vendorShareToDeduct;
+
+                i_usdc.transfer(buyer, buyerRefundAmount);
+                totalRefunded += buyerRefundAmount;
+
+                emit BuyerRefunded(
+                    buyer,
+                    _animalId,
+                    buyerRefundAmount,
+                    _reason
+                );
+            }
+        }
+
+        animal.status = AnimalStatus.PENDING;
+        animal.availableShares = animal.totalShares;
+
+        emit AnimalRefunded(_animalId, totalRefunded, _reason);
     }
 
     function setPlatformFee(
@@ -424,21 +620,94 @@ contract Qurban is Governed {
         emit PlatformFeeUpdated(oldFeeBps, _newFeeBps);
     }
 
-    function withdrawFeesToTreasury() external onlyRole(GOVERNER_ROLE) {
-        uint256 contractBalance = i_usdc.balanceOf(address(this));
-        if (contractBalance > 0) {
-            i_usdc.approve(address(i_treasury), contractBalance);
-            i_treasury.depositFees(address(i_usdc), contractBalance);
-            emit FeesDeposited(address(i_treasury), contractBalance);
+    function getAnimalsByStatus(
+        AnimalStatus _status
+    ) external view returns (uint256[] memory) {
+        uint256 statusCount = 0;
+        for (uint256 i = 0; i < _nextAnimalId; i++) {
+            if (s_animals[i].status == _status) {
+                statusCount++;
+            }
         }
+
+        uint256[] memory animals = new uint256[](statusCount);
+        uint256 currentIndex = 0;
+
+        for (uint256 i = 0; i < _nextAnimalId; i++) {
+            if (s_animals[i].status == _status) {
+                animals[currentIndex] = i;
+                currentIndex++;
+            }
+        }
+
+        return animals;
     }
 
-    function getPlatformFeeInfo()
-        external
-        view
-        returns (uint256 feeBps, uint256 feePercentage)
-    {
-        feeBps = s_platformFeeBps;
-        feePercentage = (s_platformFeeBps * 100) / BPS_BASE;
+    function getVendorAnimalsByStatus(
+        address _vendorAddress,
+        AnimalStatus _status
+    ) external view returns (uint256[] memory) {
+        uint256[] memory vendorAnimals = s_vendorAnimalIds[_vendorAddress];
+
+        uint256 statusCount = 0;
+        for (uint256 i = 0; i < vendorAnimals.length; i++) {
+            if (s_animals[vendorAnimals[i]].status == _status) {
+                statusCount++;
+            }
+        }
+
+        uint256[] memory filteredAnimals = new uint256[](statusCount);
+        uint256 currentIndex = 0;
+
+        for (uint256 i = 0; i < vendorAnimals.length; i++) {
+            uint256 animalId = vendorAnimals[i];
+            if (s_animals[animalId].status == _status) {
+                filteredAnimals[currentIndex] = animalId;
+                currentIndex++;
+            }
+        }
+
+        return filteredAnimals;
+    }
+
+    function getTotalAnimalsCount() external view returns (uint256) {
+        return _nextAnimalId;
+    }
+
+    function getVendorAnimals(
+        address _vendorAddress
+    ) external view returns (uint256[] memory) {
+        return s_vendorAnimalIds[_vendorAddress];
+    }
+
+    function getAnimalById(
+        uint256 _animalId
+    ) external view returns (Animal memory) {
+        return s_animals[_animalId];
+    }
+
+    function getAnimalBuyers(
+        uint256 _animalId
+    ) external view returns (address[] memory) {
+        return s_animalBuyers[_animalId];
+    }
+
+    function getAnimalBuyerTransactionsIds(
+        uint256 _animalId,
+        address _buyer
+    ) external view returns (uint256[] memory) {
+        return s_animalBuyerTransactionIds[_animalId][_buyer];
+    }
+
+    function getBuyerTransactionIds(
+        address _buyer
+    ) external view returns (uint256[] memory) {
+        return s_buyerTransactionIds[_buyer];
+    }
+
+    function isVendorRegistered(
+        address _vendorAddress
+    ) public view returns (bool) {
+        return s_registeredVendors[_vendorAddress];
     }
 }

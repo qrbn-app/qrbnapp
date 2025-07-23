@@ -12,7 +12,6 @@ import {QrbnTimelock} from "../src/dao/QrbnTimelock.sol";
 import {DeployQrbn} from "../script/DeployQrbn.s.sol";
 import {DeployConfig} from "../script/DeployConfig.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Constants} from "../src/lib/Constants.sol";
 
 contract TestQrbn is Test {
@@ -686,6 +685,8 @@ contract TestQrbn is Test {
             uint256 nftCertificateId,
             uint256 pricePerShare,
             uint256 totalPaid,
+            uint256 fee,
+            uint256 vendorShare,
             uint256 timestamp,
             uint8 shareAmount,
             address buyer
@@ -696,6 +697,8 @@ contract TestQrbn is Test {
         assertEq(nftCertificateId, 0);
         assertEq(pricePerShare, 100e6);
         assertEq(totalPaid, 500e6);
+        assertEq(fee, (500e6 * 250) / 10000);
+        assertEq(vendorShare, 500e6 - fee);
         assertEq(shareAmount, 5);
         assertEq(buyer, i_buyer);
         assertGt(timestamp, 0);
@@ -710,15 +713,18 @@ contract TestQrbn is Test {
 
         // Check vendor sales
         (, , , , , , uint256 totalSales, ) = i_qurban.s_vendors(i_vendor);
-        uint256 platformFee = (500e6 * 250) / 10000;
-        uint256 expectedVendorShare = 500e6 - platformFee;
+        uint256 expectedVendorShare = 500e6 - fee;
         assertEq(totalSales, expectedVendorShare);
 
-        // Check treasury balance
-        assertEq(
-            i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)),
-            platformFee
-        );
+        // Check buyer tracking
+        address[] memory buyers = i_qurban.getAnimalBuyers(0);
+        assertEq(buyers.length, 1);
+        assertEq(buyers[0], i_buyer);
+
+        uint256[] memory buyerTransactions = i_qurban
+            .getAnimalBuyerTransactionsIds(0, i_buyer);
+        assertEq(buyerTransactions.length, 1);
+        assertEq(buyerTransactions[0], 0);
     }
 
     function test_PurchaseAnimalSharesFullySold() public {
@@ -789,6 +795,367 @@ contract TestQrbn is Test {
         );
         vm.prank(i_buyer);
         i_qurban.purchaseAnimalShares(0, 8); // Trying to buy 8 shares when only 7 are available
+    }
+
+    // ============ NFT CERTIFICATE MINTING TESTS ============
+
+    function test_MarkAnimalSacrificedAndMintCertificates() public {
+        // Setup animal and purchase shares
+        _setupStandardVendorWithAnimal();
+
+        // Multiple buyers purchase shares
+        address buyer2 = makeAddr("buyer2");
+        i_mockUSDC.mint(buyer2, 1000e6);
+
+        vm.startPrank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 500e6);
+        i_qurban.purchaseAnimalShares(0, 5);
+        vm.stopPrank();
+
+        vm.startPrank(buyer2);
+        i_mockUSDC.approve(address(i_qurban), 200e6);
+        i_qurban.purchaseAnimalShares(0, 2);
+        vm.stopPrank();
+
+        // Verify animal is sold
+        (, , , , , , , , , , , , , , Qurban.AnimalStatus status, , ) = i_qurban
+            .s_animals(0);
+        assertEq(uint8(status), uint8(Qurban.AnimalStatus.SOLD));
+
+        // Mark as sacrificed and mint certificates
+        string memory certificateURI = "https://api.qrbn.com/certificates";
+
+        vm.expectEmit(true, true, true, true);
+        emit Qurban.VendorShareDistributed(i_vendor, 0, 682500000);
+        vm.expectEmit(true, true, true, true);
+        emit Qurban.AnimalSacrificed(0, block.timestamp);
+        vm.expectEmit(true, true, true, true);
+        emit Qurban.NFTCertificatesMinted(0, 2);
+
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.markAnimalSacrificedAndMintCertificates(0, certificateURI);
+
+        // Verify animal status
+        (
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            Qurban.AnimalStatus newStatus,
+            ,
+
+        ) = i_qurban.s_animals(0);
+        assertEq(uint8(newStatus), uint8(Qurban.AnimalStatus.SACRIFICED));
+
+        // Verify NFT certificates were minted
+        (, , uint256 nftCertId1, , , , , , , ) = i_qurban.s_buyerTransactions(
+            0
+        );
+        (, , uint256 nftCertId2, , , , , , , ) = i_qurban.s_buyerTransactions(
+            1
+        );
+
+        assertGt(nftCertId1, 0);
+        assertGt(nftCertId2, 0);
+        assertNotEq(nftCertId1, nftCertId2);
+
+        // Verify NFT ownership
+        assertEq(i_qurbanNFT.ownerOf(nftCertId1), i_buyer);
+        assertEq(i_qurbanNFT.ownerOf(nftCertId2), buyer2);
+    }
+
+    function test_MarkAnimalSacrificedAndMintCertificates_NotSold() public {
+        _setupStandardVendorWithAnimal();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.NotAvailable.selector,
+                "animal for sacrifice"
+            )
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.markAnimalSacrificedAndMintCertificates(
+            0,
+            "https://api.qrbn.com/certificates"
+        );
+    }
+
+    function test_MarkAnimalSacrificedAndMintCertificates_EmptyURI() public {
+        _setupStandardVendorWithAnimal();
+        _purchaseAllShares();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.EmptyString.selector,
+                "certificateURI"
+            )
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.markAnimalSacrificedAndMintCertificates(0, "");
+    }
+
+    function test_MarkAnimalSacrificedAndMintCertificates_NonGov() public {
+        _setupStandardVendorWithAnimal();
+        _purchaseAllShares();
+
+        vm.expectRevert();
+        vm.prank(i_buyer);
+        i_qurban.markAnimalSacrificedAndMintCertificates(
+            0,
+            "https://api.qrbn.com/certificates"
+        );
+    }
+
+    // ============ REFUND TESTS ============
+
+    function test_RefundAnimalPurchases() public {
+        // Setup and purchase
+        _setupStandardVendorWithAnimal();
+
+        address buyer2 = makeAddr("buyer2");
+        i_mockUSDC.mint(buyer2, 1000e6);
+
+        uint256 buyer1InitialBalance = i_mockUSDC.balanceOf(i_buyer);
+        uint256 buyer2InitialBalance = i_mockUSDC.balanceOf(buyer2);
+
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 500e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 5);
+
+        vm.prank(buyer2);
+        i_mockUSDC.approve(address(i_qurban), 200e6);
+        vm.prank(buyer2);
+        i_qurban.purchaseAnimalShares(0, 2);
+
+        // Refund purchases
+        string memory reason = "Animal is sick";
+
+        vm.expectEmit(true, true, false, false);
+        emit Qurban.BuyerRefunded(i_buyer, 0, 500e6, reason);
+        vm.expectEmit(true, true, false, false);
+        emit Qurban.BuyerRefunded(buyer2, 0, 200e6, reason);
+        vm.expectEmit(true, true, false, false);
+        emit Qurban.AnimalRefunded(0, 700e6, reason);
+
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.refundAnimalPurchases(0, reason);
+
+        // Verify refunds
+        assertEq(i_mockUSDC.balanceOf(i_buyer), buyer1InitialBalance);
+        assertEq(i_mockUSDC.balanceOf(buyer2), buyer2InitialBalance);
+
+        // Verify animal status reset
+        (
+            ,
+            ,
+            ,
+            ,
+            uint8 availableShares,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            Qurban.AnimalStatus status,
+            ,
+
+        ) = i_qurban.s_animals(0);
+        assertEq(availableShares, 7);
+        assertEq(uint8(status), uint8(Qurban.AnimalStatus.PENDING));
+
+        // Verify transactions marked as refunded
+        (, , uint256 nftCertId1, , , , , , , ) = i_qurban.s_buyerTransactions(
+            0
+        );
+        (, , uint256 nftCertId2, , , , , , , ) = i_qurban.s_buyerTransactions(
+            1
+        );
+
+        assertEq(nftCertId1, type(uint256).max);
+        assertEq(nftCertId2, type(uint256).max);
+    }
+
+    function test_RefundAnimalPurchases_NotSold() public {
+        _setupStandardVendorWithAnimal();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Errors.NotAvailable.selector,
+                "animal for refund"
+            )
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.refundAnimalPurchases(0, "Animal is sick");
+    }
+
+    function test_RefundAnimalPurchases_EmptyReason() public {
+        _setupStandardVendorWithAnimal();
+        _purchaseAllShares();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.EmptyString.selector, "reason")
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.refundAnimalPurchases(0, "");
+    }
+
+    function test_RefundAnimalPurchases_NonGov() public {
+        _setupStandardVendorWithAnimal();
+        _purchaseAllShares();
+
+        vm.expectRevert();
+        vm.prank(i_buyer);
+        i_qurban.refundAnimalPurchases(0, "Animal is sick");
+    }
+
+    // ============ GETTER FUNCTION TESTS ============
+
+    function test_GetAvailableAnimals() public {
+        // Setup multiple animals
+        _setupStandardVendorWithAnimal(); // Animal 0
+        _addSheepAnimal(i_vendor, "Animal 2", 5, 150e6); // Animal 1
+        _addSheepAnimal(i_vendor, "Animal 3", 3, 200e6); // Animal 2
+
+        // Unapprove one animal
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.unapproveAnimal(1);
+
+        uint256[] memory availableAnimals = i_qurban.getAnimalsByStatus(
+            Qurban.AnimalStatus.AVAILABLE
+        );
+        assertEq(availableAnimals.length, 2);
+        assertEq(availableAnimals[0], 0);
+        assertEq(availableAnimals[1], 2);
+    }
+
+    function test_GetAnimalsByStatus() public {
+        // Setup multiple animals with different statuses
+        _setupStandardVendorWithAnimal(); // Animal 0 - AVAILABLE
+        _addSheepAnimal(i_vendor, "Animal 2", 5, 150e6); // Animal 1 - AVAILABLE
+        _addSheepAnimal(i_vendor, "Animal 3", 3, 200e6); // Animal 2 - AVAILABLE
+
+        // Change statuses
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.unapproveAnimal(1); // PENDING
+
+        _purchaseAllSharesForAnimal(2); // SOLD
+
+        // Test different status queries
+        uint256[] memory availableAnimals = i_qurban.getAnimalsByStatus(
+            Qurban.AnimalStatus.AVAILABLE
+        );
+        assertEq(availableAnimals.length, 1);
+        assertEq(availableAnimals[0], 0);
+
+        uint256[] memory pendingAnimals = i_qurban.getAnimalsByStatus(
+            Qurban.AnimalStatus.PENDING
+        );
+        assertEq(pendingAnimals.length, 1);
+        assertEq(pendingAnimals[0], 1);
+
+        uint256[] memory soldAnimals = i_qurban.getAnimalsByStatus(
+            Qurban.AnimalStatus.SOLD
+        );
+        assertEq(soldAnimals.length, 1);
+        assertEq(soldAnimals[0], 2);
+    }
+
+    function test_GetVendorAnimals() public {
+        _setupStandardVendorWithAnimal();
+        _addSheepAnimal(i_vendor, "Animal 2", 5, 150e6);
+
+        // Setup another vendor
+        address vendor2 = makeAddr("vendor2");
+        _setupVendorWithAnimal(vendor2, "Animal 3", 4, 120e6);
+
+        uint256[] memory vendor1Animals = i_qurban.getVendorAnimals(i_vendor);
+        assertEq(vendor1Animals.length, 2);
+        assertEq(vendor1Animals[0], 0);
+        assertEq(vendor1Animals[1], 1);
+
+        uint256[] memory vendor2Animals = i_qurban.getVendorAnimals(vendor2);
+        assertEq(vendor2Animals.length, 1);
+        assertEq(vendor2Animals[0], 2);
+    }
+
+    function test_GetVendorAnimalsByStatus() public {
+        _setupStandardVendorWithAnimal(); // Animal 0
+        _addSheepAnimal(i_vendor, "Animal 2", 5, 150e6); // Animal 1
+        _addSheepAnimal(i_vendor, "Animal 3", 3, 200e6); // Animal 2
+
+        // Change one to pending
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.unapproveAnimal(1);
+
+        uint256[] memory availableAnimals = i_qurban.getVendorAnimalsByStatus(
+            i_vendor,
+            Qurban.AnimalStatus.AVAILABLE
+        );
+        assertEq(availableAnimals.length, 2);
+        assertEq(availableAnimals[0], 0);
+        assertEq(availableAnimals[1], 2);
+
+        uint256[] memory pendingAnimals = i_qurban.getVendorAnimalsByStatus(
+            i_vendor,
+            Qurban.AnimalStatus.PENDING
+        );
+        assertEq(pendingAnimals.length, 1);
+        assertEq(pendingAnimals[0], 1);
+    }
+
+    function test_GetBuyerTransactionIds() public {
+        _setupStandardVendorWithAnimal();
+
+        // Buyer makes multiple purchases
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 500e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 3);
+
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 200e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 2);
+
+        uint256[] memory buyerTransactions = i_qurban.getBuyerTransactionIds(
+            i_buyer
+        );
+        assertEq(buyerTransactions.length, 2);
+        assertEq(buyerTransactions[0], 0);
+        assertEq(buyerTransactions[1], 1);
+    }
+
+    function test_IsVendorRegistered() public {
+        assertEq(i_qurban.isVendorRegistered(i_vendor), false);
+
+        _registerVendor(i_vendor);
+
+        assertEq(i_qurban.isVendorRegistered(i_vendor), true);
+    }
+
+    function test_GetTotalAnimalsCount() public {
+        assertEq(i_qurban.getTotalAnimalsCount(), 0);
+
+        _setupStandardVendorWithAnimal();
+        assertEq(i_qurban.getTotalAnimalsCount(), 1);
+
+        _addSheepAnimal(i_vendor, "Animal 2", 5, 150e6);
+        assertEq(i_qurban.getTotalAnimalsCount(), 2);
     }
 
     // ============ TOKEN TRANSFER TESTS ============
@@ -921,27 +1288,43 @@ contract TestQrbn is Test {
     }
 
     function test_Treasury_WithdrawFees() public {
-        // 1. Purchase to deposit fees into treasury
+        // 1. Purchase to calculate fees (but not deposit them yet)
         _setupStandardVendorWithAnimal();
         vm.prank(i_buyer);
         i_mockUSDC.approve(address(i_qurban), 500e6);
         vm.prank(i_buyer);
         i_qurban.purchaseAnimalShares(0, 5);
-        uint256 feeAmount = (500e6 * 250) / 10000;
 
-        // 2. Withdraw
-        uint256 recipientInitialBalance = i_mockUSDC.balanceOf(i_founder);
-        vm.expectEmit(true, true, true, true);
-        emit QrbnTreasury.FeeWithdrawn(
-            address(i_mockUSDC),
-            i_founder,
-            feeAmount,
-            0
+        // At this point, treasury should still be empty
+        assertEq(i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)), 0);
+
+        // 2. Complete the animal sacrifice to deposit fees
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 200e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 2); // Buy remaining shares to make it SOLD
+
+        // Mark as sacrificed - this deposits the fees
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.markAnimalSacrificedAndMintCertificates(
+            0,
+            "https://api.qrbn.com/certificates"
         );
+
+        uint256 feeAmount = (700e6 * 250) / 10000; // Total fees from both purchases
+
+        // Now verify fees were deposited to treasury
+        assertEq(
+            i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)),
+            feeAmount
+        );
+
+        // 3. Test withdrawal
+        uint256 recipientInitialBalance = i_mockUSDC.balanceOf(i_founder);
         vm.prank(address(i_qrbnTimelock));
         i_qrbnTreasury.withdrawFees(address(i_mockUSDC), i_founder, feeAmount);
 
-        // 3. Verify
+        // 4. Verify
         assertEq(
             i_mockUSDC.balanceOf(i_founder),
             recipientInitialBalance + feeAmount
@@ -965,26 +1348,50 @@ contract TestQrbn is Test {
     }
 
     function test_Treasury_Fails_WithdrawInsufficientBalance() public {
+        // 1. Setup and complete a full purchase cycle to get fees in treasury
         _setupStandardVendorWithAnimal();
+
+        // Purchase 5 shares
         vm.prank(i_buyer);
         i_mockUSDC.approve(address(i_qurban), 500e6);
         vm.prank(i_buyer);
         i_qurban.purchaseAnimalShares(0, 5);
-        uint256 feeAmount = (500e6 * 250) / 10000;
 
+        // Purchase remaining 2 shares to make animal SOLD
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 200e6);
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 2);
+
+        // Mark as sacrificed to deposit fees to treasury
+        vm.prank(address(i_qrbnTimelock));
+        i_qurban.markAnimalSacrificedAndMintCertificates(
+            0,
+            "https://api.qrbn.com/certificates"
+        );
+
+        uint256 totalFeeAmount = (700e6 * 250) / 10000; // Total fees from both purchases
+
+        // Verify fees were deposited to treasury after sacrifice
+        assertEq(
+            i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)),
+            totalFeeAmount
+        );
+
+        // 2. Try to withdraw more than available - should fail
         vm.expectRevert(
             abi.encodeWithSelector(
                 Errors.InsufficientBalance.selector,
                 address(i_mockUSDC),
-                feeAmount,
-                feeAmount + 1
+                totalFeeAmount,
+                totalFeeAmount + 1
             )
         );
         vm.prank(address(i_qrbnTimelock));
         i_qrbnTreasury.withdrawFees(
             address(i_mockUSDC),
             i_founder,
-            feeAmount + 1
+            totalFeeAmount + 1
         );
     }
 
@@ -1259,6 +1666,7 @@ contract TestQrbn is Test {
         string memory farmName,
         uint256 sacrificeDate
     ) internal returns (uint256) {
+        uint256 currentCount = i_qurban.getTotalAnimalsCount();
         vm.prank(address(i_qrbnTimelock));
         i_qurban.addAnimal(
             vendor,
@@ -1275,7 +1683,7 @@ contract TestQrbn is Test {
             farmName,
             sacrificeDate
         );
-        return 0; // Return the ID of the just-created animal (assuming first animal = 0)
+        return currentCount; // Return the ID of the just-created animal
     }
 
     function _addSheepAnimal(
@@ -1300,5 +1708,25 @@ contract TestQrbn is Test {
                 "Farm Name",
                 block.timestamp + 30 days
             );
+    }
+
+    function _purchaseAllShares() internal {
+        vm.prank(i_buyer);
+        i_mockUSDC.approve(address(i_qurban), 1000e6);
+
+        vm.prank(i_buyer);
+        i_qurban.purchaseAnimalShares(0, 7);
+    }
+
+    function _purchaseAllSharesForAnimal(uint256 animalId) internal {
+        Qurban.Animal memory animal = i_qurban.getAnimalById(animalId);
+
+        vm.startPrank(i_buyer);
+        i_mockUSDC.approve(
+            address(i_qurban),
+            animal.totalShares * animal.pricePerShare
+        );
+        i_qurban.purchaseAnimalShares(animalId, animal.totalShares);
+        vm.stopPrank();
     }
 }
