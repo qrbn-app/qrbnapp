@@ -428,17 +428,17 @@ contract TestZakat is Test {
     // ============ DONATION TESTS ============
 
     function test_DonateZakat() public {
-        uint256 donationAmount = 1000e6; // 1000 USDC
-        uint256 expectedFee = (donationAmount * 250) / 10000; // 2.5%
-        uint256 expectedNetAmount = donationAmount - expectedFee;
+        uint256 donationAmount = 1000e6; // 1000 USDC (net Zakat amount)
+        uint256 tipAmount = 25e6; // 25 USDC tip (2.5% of donation)
+        uint256 totalAmount = donationAmount + tipAmount;
 
         vm.prank(i_donor);
-        i_mockUSDC.approve(address(i_zakat), donationAmount);
+        i_mockUSDC.approve(address(i_zakat), totalAmount);
 
         vm.expectEmit(true, true, true, true);
-        emit Zakat.ZakatDonated(i_donor, 0, donationAmount, expectedNetAmount);
+        emit Zakat.ZakatDonated(i_donor, 0, totalAmount, donationAmount);
         vm.prank(i_donor);
-        i_zakat.donateZakat(donationAmount, "May Allah accept this zakat");
+        i_zakat.donateZakat(donationAmount, tipAmount, Zakat.ZakatType.ZAKAT_MAAL, "May Allah accept this zakat");
 
         // Verify donation record
         (
@@ -450,23 +450,25 @@ contract TestZakat is Test {
             uint256 nftCertificateId,
             uint256 timestamp,
             bool isDistributed,
+            Zakat.ZakatType zakatType,
             string memory donorMessage
         ) = i_zakat.s_zakatDonations(0);
 
         assertEq(id, 0);
         assertEq(donor, i_donor);
-        assertEq(amount, donationAmount);
-        assertEq(platformFee, expectedFee);
-        assertEq(netAmount, expectedNetAmount);
+        assertEq(amount, totalAmount);
+        assertEq(platformFee, tipAmount);
+        assertEq(netAmount, donationAmount);
         assertEq(nftCertificateId, 0);
         assertGt(timestamp, 0);
         assertEq(isDistributed, false);
+        assertEq(uint8(zakatType), uint8(Zakat.ZakatType.ZAKAT_MAAL));
         assertEq(donorMessage, "May Allah accept this zakat");
 
         // Verify contract state
-        assertEq(i_zakat.s_totalCollectedZakat(), donationAmount);
-        assertEq(i_zakat.s_totalCollectedFees(), expectedFee);
-        assertEq(i_zakat.s_availableZakatBalance(), expectedNetAmount);
+        assertEq(i_zakat.s_totalCollectedZakat(), donationAmount); // Only net amount
+        assertEq(i_zakat.s_totalCollectedFees(), tipAmount);
+        assertEq(i_zakat.s_availableZakatBalance(), donationAmount);
 
         // Verify donor tracking
         uint256[] memory donorDonations = i_zakat.getDonorDonations(i_donor);
@@ -474,7 +476,7 @@ contract TestZakat is Test {
         assertEq(donorDonations[0], 0);
 
         // Verify fees were deposited to treasury
-        assertEq(i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)), expectedFee);
+        assertEq(i_qrbnTreasury.getAvailableBalance(address(i_mockUSDC)), tipAmount);
     }
 
     function test_DonateZakatWithZeroAmount() public {
@@ -482,32 +484,33 @@ contract TestZakat is Test {
             abi.encodeWithSelector(Errors.InvalidAmount.selector, "amount")
         );
         vm.prank(i_donor);
-        i_zakat.donateZakat(0, "");
+        i_zakat.donateZakat(0, 0, Zakat.ZakatType.ZAKAT_MAAL, "");
     }
 
     function test_MultipleDonationsFromSameDonor() public {
         uint256 donation1 = 1000e6;
         uint256 donation2 = 500e6;
-        uint256 totalDonations = donation1 + donation2;
-        uint256 totalFees = ((donation1 + donation2) * 250) / 10000;
-        uint256 totalNetAmount = totalDonations - totalFees;
+        uint256 tip1 = 25e6; // 2.5% of first donation
+        uint256 tip2 = 12.5e6; // 2.5% of second donation
+        uint256 totalNetDonations = donation1 + donation2;
+        uint256 totalTips = tip1 + tip2;
 
         // First donation
         vm.prank(i_donor);
-        i_mockUSDC.approve(address(i_zakat), donation1);
+        i_mockUSDC.approve(address(i_zakat), donation1 + tip1);
         vm.prank(i_donor);
-        i_zakat.donateZakat(donation1, "First donation");
+        i_zakat.donateZakat(donation1, tip1, Zakat.ZakatType.ZAKAT_MAAL, "First donation");
 
         // Second donation
         vm.prank(i_donor);
-        i_mockUSDC.approve(address(i_zakat), donation2);
+        i_mockUSDC.approve(address(i_zakat), donation2 + tip2);
         vm.prank(i_donor);
-        i_zakat.donateZakat(donation2, "Second donation");
+        i_zakat.donateZakat(donation2, tip2, Zakat.ZakatType.ZAKAT_FITRAH, "Second donation");
 
         // Verify totals
-        assertEq(i_zakat.s_totalCollectedZakat(), totalDonations);
-        assertEq(i_zakat.s_totalCollectedFees(), totalFees);
-        assertEq(i_zakat.s_availableZakatBalance(), totalNetAmount);
+        assertEq(i_zakat.s_totalCollectedZakat(), totalNetDonations);
+        assertEq(i_zakat.s_totalCollectedFees(), totalTips);
+        assertEq(i_zakat.s_availableZakatBalance(), totalNetDonations);
 
         // Verify donor has 2 donations
         uint256[] memory donorDonations = i_zakat.getDonorDonations(i_donor);
@@ -519,18 +522,20 @@ contract TestZakat is Test {
     function test_MultipleDonorsCanDonate() public {
         uint256 donation1 = 1000e6;
         uint256 donation2 = 2000e6;
+        uint256 tip1 = 25e6;
+        uint256 tip2 = 50e6;
 
         // First donor
         vm.prank(i_donor);
-        i_mockUSDC.approve(address(i_zakat), donation1);
+        i_mockUSDC.approve(address(i_zakat), donation1 + tip1);
         vm.prank(i_donor);
-        i_zakat.donateZakat(donation1, "From donor 1");
+        i_zakat.donateZakat(donation1, tip1, Zakat.ZakatType.ZAKAT_MAAL, "From donor 1");
 
         // Second donor
         vm.prank(i_donor2);
-        i_mockUSDC.approve(address(i_zakat), donation2);
+        i_mockUSDC.approve(address(i_zakat), donation2 + tip2);
         vm.prank(i_donor2);
-        i_zakat.donateZakat(donation2, "From donor 2");
+        i_zakat.donateZakat(donation2, tip2, Zakat.ZakatType.ZAKAT_FITRAH, "From donor 2");
 
         // Verify separate tracking
         uint256[] memory donor1Donations = i_zakat.getDonorDonations(i_donor);
@@ -541,7 +546,7 @@ contract TestZakat is Test {
         assertEq(donor1Donations[0], 0);
         assertEq(donor2Donations[0], 1);
 
-        // Verify total state
+        // Verify total state (only net amounts)
         assertEq(i_zakat.s_totalCollectedZakat(), donation1 + donation2);
     }
 
@@ -834,6 +839,13 @@ contract TestZakat is Test {
         _proposeStandardDistribution();
         uint256 approvedAmount = 400e6;
         _approveDistribution(0, approvedAmount);
+        
+        // Allocate the donation to the distribution
+        uint256[] memory donationIds = new uint256[](1);
+        donationIds[0] = 0; // First donation ID
+        vm.prank(address(i_qrbnTimelock));
+        i_zakat.allocateDonationsToDistribution(0, donationIds);
+        
         _distributeZakat(0);
 
         uint256 actualBeneficiaries = 95;
@@ -883,7 +895,7 @@ contract TestZakat is Test {
         assertEq(totalBeneficiaries, actualBeneficiaries);
 
         // Verify NFT was minted to donor
-        (, , , , , uint256 nftCertificateId, , bool isDistributed, ) = i_zakat.s_zakatDonations(0);
+        (, , , , , uint256 nftCertificateId, , bool isDistributed, , ) = i_zakat.s_zakatDonations(0);
         assertGt(nftCertificateId, 0);
         assertEq(isDistributed, true);
         assertEq(i_zakatNFT.ownerOf(nftCertificateId), i_donor);
@@ -956,6 +968,14 @@ contract TestZakat is Test {
 
         _proposeStandardDistribution();
         _approveDistribution(0, 600e6);
+        
+        // Allocate both donations to the distribution
+        uint256[] memory donationIds = new uint256[](2);
+        donationIds[0] = 0; // First donation ID
+        donationIds[1] = 1; // Second donation ID
+        vm.prank(address(i_qrbnTimelock));
+        i_zakat.allocateDonationsToDistribution(0, donationIds);
+        
         _distributeZakat(0);
 
         vm.expectEmit(true, true, true, true);
@@ -970,8 +990,8 @@ contract TestZakat is Test {
         );
 
         // Verify both donors received NFTs
-        (, , , , , uint256 nftId1, , bool isDistributed1, ) = i_zakat.s_zakatDonations(0);
-        (, , , , , uint256 nftId2, , bool isDistributed2, ) = i_zakat.s_zakatDonations(1);
+        (, , , , , uint256 nftId1, , bool isDistributed1, , ) = i_zakat.s_zakatDonations(0);
+        (, , , , , uint256 nftId2, , bool isDistributed2, , ) = i_zakat.s_zakatDonations(1);
 
         assertGt(nftId1, 0);
         assertGt(nftId2, 0);
@@ -983,30 +1003,30 @@ contract TestZakat is Test {
 
     // ============ CONFIGURATION TESTS ============
 
-    function test_SetZakatPlatformFee() public {
-        uint256 newFeeBps = 500; // 5%
-        uint256 oldFeeBps = i_zakat.s_platformFeeBps();
+    function test_SetSuggestedTipPercentage() public {
+        uint256 newTipBps = 500; // 5%
+        uint256 oldTipBps = i_zakat.s_platformFeeBps();
 
         vm.expectEmit(true, true, true, true);
-        emit Zakat.ZakatPlatformFeeUpdated(oldFeeBps, newFeeBps);
+        emit Zakat.ZakatPlatformFeeUpdated(oldTipBps, newTipBps);
         vm.prank(address(i_qrbnTimelock));
-        i_zakat.setZakatPlatformFee(newFeeBps);
+        i_zakat.setSuggestedTipPercentage(newTipBps);
 
-        assertEq(i_zakat.s_platformFeeBps(), newFeeBps);
+        assertEq(i_zakat.s_platformFeeBps(), newTipBps);
     }
 
-    function test_SetZakatPlatformFeeExceedsMaximum() public {
+    function test_SetSuggestedTipPercentageExceedsMaximum() public {
         vm.expectRevert(
-            abi.encodeWithSelector(Errors.InvalidAmount.selector, "platformFee")
+            abi.encodeWithSelector(Errors.InvalidAmount.selector, "tipPercentage")
         );
         vm.prank(address(i_qrbnTimelock));
-        i_zakat.setZakatPlatformFee(1001); // Over 10%
+        i_zakat.setSuggestedTipPercentage(1001); // Over 10%
     }
 
-    function test_SetZakatPlatformFeeByNonGov() public {
+    function test_SetSuggestedTipPercentageByNonGov() public {
         vm.expectRevert();
         vm.prank(i_founder);
-        i_zakat.setZakatPlatformFee(300);
+        i_zakat.setSuggestedTipPercentage(300);
     }
 
     // ============ VIEW FUNCTION TESTS ============
@@ -1094,14 +1114,12 @@ contract TestZakat is Test {
     }
 
     function test_CalculateDonationAmounts() public view {
-        uint256 amount = 1000e6;
-        (uint256 netAmount, uint256 platformFee) = i_zakat.calculateDonationAmounts(amount);
+        uint256 donationAmount = 1000e6;
+        uint256 tipAmount = 25e6;
+        (uint256 totalAmount, uint256 netAmount) = i_zakat.calculateDonationAmounts(donationAmount, tipAmount);
         
-        uint256 expectedFee = (amount * 250) / 10000; // 2.5%
-        uint256 expectedNet = amount - expectedFee;
-        
-        assertEq(platformFee, expectedFee);
-        assertEq(netAmount, expectedNet);
+        assertEq(totalAmount, donationAmount + tipAmount);
+        assertEq(netAmount, donationAmount);
     }
 
     function test_IsOrganizationRegistered() public {
@@ -1132,9 +1150,11 @@ contract TestZakat is Test {
         
         assertEq(donationInfo.id, 0);
         assertEq(donationInfo.donor, i_donor);
-        assertEq(donationInfo.amount, 1000e6);
+        assertEq(donationInfo.amount, 1000e6 + 25e6); // Total amount including tip
+        assertEq(donationInfo.netAmount, 1000e6); // Net Zakat amount
         assertEq(donationInfo.donorMessage, "Test donation");
         assertEq(donationInfo.isDistributed, false);
+        assertEq(uint8(donationInfo.zakatType), uint8(Zakat.ZakatType.ZAKAT_MAAL));
     }
 
     function test_GetDistributionInfo() public {
@@ -1148,6 +1168,59 @@ contract TestZakat is Test {
         assertEq(distributionInfo.requestedAmount, 500e6);
         assertEq(distributionInfo.title, "Food Distribution for Poor Families");
         assertEq(uint8(distributionInfo.status), uint8(Zakat.DistributionStatus.PENDING));
+    }
+
+    // ============ ZAKAT TYPE TESTS ============
+
+    function test_DonateZakatWithDifferentTypes() public {
+        uint256 donationAmount = 1000e6;
+        uint256 tipAmount = 25e6;
+        uint256 totalAmount = donationAmount + tipAmount;
+
+        // Donate ZAKAT_MAAL
+        vm.prank(i_donor);
+        i_mockUSDC.approve(address(i_zakat), totalAmount);
+        vm.prank(i_donor);
+        i_zakat.donateZakat(donationAmount, tipAmount, Zakat.ZakatType.ZAKAT_MAAL, "Zakat Mal");
+
+        // Donate ZAKAT_FITRAH
+        vm.prank(i_donor2);
+        i_mockUSDC.approve(address(i_zakat), totalAmount);
+        vm.prank(i_donor2);
+        i_zakat.donateZakat(donationAmount, tipAmount, Zakat.ZakatType.ZAKAT_FITRAH, "Zakat Fitrah");
+
+        // Verify different Zakat types
+        (, , , , , , , , Zakat.ZakatType zakatType1, ) = i_zakat.s_zakatDonations(0);
+        (, , , , , , , , Zakat.ZakatType zakatType2, ) = i_zakat.s_zakatDonations(1);
+
+        assertEq(uint8(zakatType1), uint8(Zakat.ZakatType.ZAKAT_MAAL));
+        assertEq(uint8(zakatType2), uint8(Zakat.ZakatType.ZAKAT_FITRAH));
+    }
+
+    function test_AllZakatTypesCanBeDonated() public {
+        uint256 donationAmount = 100e6;
+        uint256 tipAmount = 2.5e6;
+        uint256 totalAmount = donationAmount + tipAmount;
+        
+        // Test all Zakat types
+        Zakat.ZakatType[2] memory zakatTypes = [
+            Zakat.ZakatType.ZAKAT_MAAL,
+            Zakat.ZakatType.ZAKAT_FITRAH
+        ];
+
+        for (uint256 i = 0; i < zakatTypes.length; i++) {
+            vm.prank(i_donor);
+            i_mockUSDC.approve(address(i_zakat), totalAmount);
+            vm.prank(i_donor);
+            i_zakat.donateZakat(donationAmount, tipAmount, zakatTypes[i], "Test donation");
+
+            // Verify the Zakat type was stored correctly
+            (, , , , , , , , Zakat.ZakatType storedType, ) = i_zakat.s_zakatDonations(i);
+            assertEq(uint8(storedType), uint8(zakatTypes[i]));
+        }
+
+        // Verify total donations
+        assertEq(i_zakat.s_totalCollectedZakat(), donationAmount * zakatTypes.length);
     }
 
     // ============ ZAKAT NFT TESTS ============
@@ -1212,6 +1285,13 @@ contract TestZakat is Test {
         uint256 approvedAmount = 800e6;
         _approveDistribution(0, approvedAmount);
 
+        // 4.5. Allocate donations to distribution
+        uint256[] memory donationIds = new uint256[](2);
+        donationIds[0] = 0; // First donation ID
+        donationIds[1] = 1; // Second donation ID
+        vm.prank(address(i_qrbnTimelock));
+        i_zakat.allocateDonationsToDistribution(0, donationIds);
+
         // 5. Distribute zakat
         _distributeZakat(0);
 
@@ -1236,6 +1316,41 @@ contract TestZakat is Test {
         (, , , , , , , , uint256 totalDistributed, uint256 totalBeneficiaries, ) = i_zakat.s_zakatOrganizations(i_zakatOrg);
         assertEq(totalDistributed, approvedAmount);
         assertEq(totalBeneficiaries, 120);
+    }
+
+    function test_AllocateDonationsToDistribution() public {
+        _setupStandardZakatOrganizationWithFunds();
+        _proposeStandardDistribution();
+        _approveDistribution(0, 400e6);
+
+        // Allocate the donation to the distribution
+        uint256[] memory donationIds = new uint256[](1);
+        donationIds[0] = 0;
+        
+        vm.prank(address(i_qrbnTimelock));
+        i_zakat.allocateDonationsToDistribution(0, donationIds);
+
+        // Verify allocation
+        assertEq(i_zakat.s_donationToDistribution(0), 0); // donationId 0 -> distributionId 0
+        
+        uint256[] memory allocatedDonations = i_zakat.getDistributionDonations(0);
+        assertEq(allocatedDonations.length, 1);
+        assertEq(allocatedDonations[0], 0);
+    }
+
+    function test_AllocateDonationsToDistributionNotApproved() public {
+        _setupStandardZakatOrganizationWithFunds();
+        _proposeStandardDistribution();
+        // Don't approve the distribution
+
+        uint256[] memory donationIds = new uint256[](1);
+        donationIds[0] = 0;
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.NotAvailable.selector, "distribution for allocation")
+        );
+        vm.prank(address(i_qrbnTimelock));
+        i_zakat.allocateDonationsToDistribution(0, donationIds);
     }
 
     // ============ HELPER FUNCTIONS ============
@@ -1269,11 +1384,13 @@ contract TestZakat is Test {
         _donateZakat(i_donor, 1000e6, "Test donation for distribution");
     }
 
-    function _donateZakat(address donor, uint256 amount, string memory message) internal {
+    function _donateZakat(address donor, uint256 netAmount, string memory message) internal {
+        uint256 tipAmount = (netAmount * 25) / 1000; // 2.5% tip
+        uint256 totalAmount = netAmount + tipAmount;
         vm.prank(donor);
-        i_mockUSDC.approve(address(i_zakat), amount);
+        i_mockUSDC.approve(address(i_zakat), totalAmount);
         vm.prank(donor);
-        i_zakat.donateZakat(amount, message);
+        i_zakat.donateZakat(netAmount, tipAmount, Zakat.ZakatType.ZAKAT_MAAL, message);
     }
 
     function _proposeStandardDistribution() internal {

@@ -22,6 +22,9 @@ library Errors {
     error TokenBalanceNotZero(address token);
     error DepositorAlreadyAuthorized(address depositor);
     error DepositorNotAuthorized(address depositor);
+    error NotFound(string entity);
+    error AlreadyDistributed(string entity);
+    error AlreadyAllocated(string entity);
     error InsufficientBalance(
         address token,
         uint256 available,

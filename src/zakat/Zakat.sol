@@ -3,13 +3,14 @@ pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {Governed} from "../dao/Governed.sol";
 import {Errors} from "../lib/Errors.sol";
 
 /**
  * @title IQrbnTreasury
  * @notice Interface for the QRBN Treasury contract
- * @dev Used to hold and manage Zakat funds before distribution
+ * @dev Used to hold and manage platform fees/tips, not Zakat funds. Zakat funds are held in this contract until distribution.
  */
 interface IQrbnTreasury {
     function depositFees(address token, uint256 amount) external;
@@ -64,6 +65,15 @@ contract Zakat is Governed, ReentrancyGuard {
         MIXED
     }
 
+    /**
+     * @notice Types of Zakat donations
+     * @dev Categorizes different types of Zakat obligations
+     */
+    enum ZakatType {
+        ZAKAT_MAAL,     // Wealth Zakat
+        ZAKAT_FITRAH    // End of Ramadan Zakat
+    }
+
     // ============ STRUCTS ============
 
     /**
@@ -97,6 +107,7 @@ contract Zakat is Governed, ReentrancyGuard {
         uint256 nftCertificateId;
         uint256 timestamp;
         bool isDistributed;
+        ZakatType zakatType;
         string donorMessage;
     }
 
@@ -132,13 +143,13 @@ contract Zakat is Governed, ReentrancyGuard {
     uint256 private _nextOrganizationId;
 
     // Financial Tracking
-    uint256 public s_totalCollectedZakat;
+    uint256 public s_totalCollectedZakat; // Total net Zakat donations collected (excluding tips)
     uint256 public s_totalDistributedZakat;
-    uint256 public s_totalCollectedFees;
+    uint256 public s_totalCollectedFees; // Total tips collected for platform operations
     uint256 public s_availableZakatBalance;
 
     // Platform Configuration
-    uint256 public s_platformFeeBps = 250; // Platform fee in basis points (2.5%)
+    uint256 public s_platformFeeBps = 250; // Suggested tip percentage in basis points (2.5%)
     uint256 public constant BPS_BASE = 10000;
 
     // Core Data Storage
@@ -151,6 +162,7 @@ contract Zakat is Governed, ReentrancyGuard {
     mapping(address => uint256[]) public s_donorDonationIds;
     mapping(address => uint256[]) public s_organizationDistributionIds;
     mapping(uint256 => uint256[]) public s_distributionDonationIds;
+    mapping(uint256 => uint256) public s_donationToDistribution; // Maps donationId to distributionId for allocation
 
     // External Contract References
     IERC20 public immutable i_usdc;
@@ -221,8 +233,8 @@ contract Zakat is Governed, ReentrancyGuard {
         uint256 totalCertificates
     );
 
-    /// @notice Emitted when platform fee is updated
-    event ZakatPlatformFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps);
+    /// @notice Emitted when suggested tip percentage is updated
+    event ZakatPlatformFeeUpdated(uint256 oldTipBps, uint256 newTipBps);
 
     // ============ CONSTRUCTOR ============
 
@@ -395,49 +407,53 @@ contract Zakat is Governed, ReentrancyGuard {
 
     /**
      * @notice Donate Zakat to the platform
-     * @param _amount Amount of USDC to donate
+     * @param _amount Amount of USDC to donate (net amount for Zakat)
+     * @param _tipAmount Optional tip amount for platform operations
+     * @param _zakatType Type of Zakat being donated
      * @param _donorMessage Optional message from the donor
-     * @dev Donor must approve USDC spending before calling this function
+     * @dev Donor must approve USDC spending for total amount (_amount + _tipAmount) before calling this function
      */
     function donateZakat(
         uint256 _amount,
+        uint256 _tipAmount,
+        ZakatType _zakatType,
         string calldata _donorMessage
     ) external nonReentrant {
         if (_amount == 0) revert Errors.InvalidAmount("amount");
 
-        uint256 platformFee = (_amount * s_platformFeeBps) / BPS_BASE;
-        uint256 netAmount = _amount - platformFee;
+        uint256 totalAmount = _amount + _tipAmount;
 
-        // Transfer USDC from donor
-        i_usdc.transferFrom(msg.sender, address(this), _amount);
+        // Transfer total USDC from donor (donation + tip)
+        i_usdc.transferFrom(msg.sender, address(this), totalAmount);
 
-        // Approve and deposit platform fee to treasury
-        if (platformFee > 0) {
-            i_usdc.approve(address(i_treasury), platformFee);
-            i_treasury.depositFees(address(i_usdc), platformFee);
-            s_totalCollectedFees += platformFee;
+        // Approve and deposit tip to treasury if provided
+        if (_tipAmount > 0) {
+            i_usdc.approve(address(i_treasury), _tipAmount);
+            i_treasury.depositFees(address(i_usdc), _tipAmount);
+            s_totalCollectedFees += _tipAmount;
         }
 
         // Track financial state
-        s_totalCollectedZakat += _amount;
-        s_availableZakatBalance += netAmount;
+        s_totalCollectedZakat += _amount; // Only the net Zakat amount is tracked
+        s_availableZakatBalance += _amount; // Only the net Zakat amount is available for distribution
 
         uint256 donationId = _nextDonationId++;
         s_zakatDonations[donationId] = ZakatDonation({
             id: donationId,
             donor: msg.sender,
-            amount: _amount,
-            platformFee: platformFee,
-            netAmount: netAmount,
+            amount: totalAmount,
+            platformFee: _tipAmount,
+            netAmount: _amount,
             nftCertificateId: 0,
             timestamp: block.timestamp,
             isDistributed: false,
+            zakatType: _zakatType,
             donorMessage: _donorMessage
         });
 
         s_donorDonationIds[msg.sender].push(donationId);
 
-        emit ZakatDonated(msg.sender, donationId, _amount, netAmount);
+        emit ZakatDonated(msg.sender, donationId, totalAmount, _amount);
     }
 
     // ============ DISTRIBUTION MANAGEMENT FUNCTIONS ============
@@ -567,6 +583,36 @@ contract Zakat is Governed, ReentrancyGuard {
     }
 
     /**
+     * @notice Allocate specific donations to a distribution
+     * @param _distributionId ID of the distribution
+     * @param _donationIds Array of donation IDs to allocate
+     * @dev Only governance can allocate donations to distributions
+     */
+    function allocateDonationsToDistribution(
+        uint256 _distributionId,
+        uint256[] calldata _donationIds
+    ) external onlyRole(GOVERNER_ROLE) {
+        ZakatDistribution storage distribution = s_zakatDistributions[_distributionId];
+        
+        if (distribution.status != DistributionStatus.APPROVED)
+            revert Errors.NotAvailable("distribution for allocation");
+
+        for (uint256 i = 0; i < _donationIds.length; i++) {
+            uint256 donationId = _donationIds[i];
+            ZakatDonation storage donation = s_zakatDonations[donationId];
+            
+            // Check if donation exists and is not already distributed
+            if (donation.donor == address(0)) revert Errors.NotFound("donation");
+            if (donation.isDistributed) revert Errors.AlreadyDistributed("donation");
+            if (s_donationToDistribution[donationId] != 0) revert Errors.AlreadyAllocated("donation");
+            
+            // Allocate donation to distribution
+            s_donationToDistribution[donationId] = _distributionId;
+            s_distributionDonationIds[_distributionId].push(donationId);
+        }
+    }
+
+    /**
      * @notice Complete distribution with report and mint NFT certificates
      * @param _distributionId ID of the distributed Zakat
      * @param _actualBeneficiaryCount Actual number of beneficiaries served
@@ -579,7 +625,7 @@ contract Zakat is Governed, ReentrancyGuard {
         uint256 _actualBeneficiaryCount,
         string calldata _reportUri,
         string calldata _certificateURI
-    ) external onlyRole(GOVERNER_ROLE) {
+    ) external onlyRole(GOVERNER_ROLE) nonReentrant {
         ZakatDistribution storage distribution = s_zakatDistributions[_distributionId];
 
         if (distribution.status != DistributionStatus.DISTRIBUTED)
@@ -595,19 +641,22 @@ contract Zakat is Governed, ReentrancyGuard {
         ZakatOrganization storage organization = s_zakatOrganizations[distribution.organizationAddress];
         organization.totalBeneficiaries += _actualBeneficiaryCount;
 
-        // Mint NFT certificates for all donors who haven't received certificates yet
+        // Mint NFT certificates only for donations allocated to this distribution
+        uint256[] memory allocatedDonations = s_distributionDonationIds[_distributionId];
         uint256 totalCertificates = 0;
-        for (uint256 i = 0; i < _nextDonationId; i++) {
-            ZakatDonation storage donation = s_zakatDonations[i];
+        
+        for (uint256 i = 0; i < allocatedDonations.length; i++) {
+            uint256 donationId = allocatedDonations[i];
+            ZakatDonation storage donation = s_zakatDonations[donationId];
             
             if (!donation.isDistributed && donation.nftCertificateId == 0) {
                 string memory uniqueURI = string(
                     abi.encodePacked(
                         _certificateURI,
                         "/",
-                        _distributionId,
+                        Strings.toString(_distributionId),
                         "/",
-                        donation.id
+                        Strings.toString(donation.id)
                     )
                 );
 
@@ -618,7 +667,6 @@ contract Zakat is Governed, ReentrancyGuard {
                 
                 donation.nftCertificateId = nftCertificateId;
                 donation.isDistributed = true;
-                s_distributionDonationIds[_distributionId].push(donation.id);
                 totalCertificates++;
             }
         }
@@ -630,19 +678,19 @@ contract Zakat is Governed, ReentrancyGuard {
     // ============ CONFIGURATION FUNCTIONS ============
 
     /**
-     * @notice Update the platform fee percentage
-     * @param _newFeeBps New fee in basis points
+     * @notice Update the suggested tip percentage
+     * @param _newTipBps New suggested tip percentage in basis points
      */
-    function setZakatPlatformFee(
-        uint256 _newFeeBps
+    function setSuggestedTipPercentage(
+        uint256 _newTipBps
     ) external onlyRole(GOVERNER_ROLE) {
-        if (_newFeeBps > 1000) {
-            revert Errors.InvalidAmount("platformFee");
+        if (_newTipBps > 1000) {
+            revert Errors.InvalidAmount("tipPercentage");
         }
 
-        uint256 oldFeeBps = s_platformFeeBps;
-        s_platformFeeBps = _newFeeBps;
-        emit ZakatPlatformFeeUpdated(oldFeeBps, _newFeeBps);
+        uint256 oldTipBps = s_platformFeeBps;
+        s_platformFeeBps = _newTipBps;
+        emit ZakatPlatformFeeUpdated(oldTipBps, _newTipBps);
     }
 
     // ============ VIEW FUNCTIONS ============
@@ -761,14 +809,16 @@ contract Zakat is Governed, ReentrancyGuard {
     }
 
     /**
-     * @notice Calculate donation amounts including fees
-     * @param _amount Gross donation amount
-     * @return netAmount Amount after fees, platformFee Fee amount
+     * @notice Calculate donation amounts including tip
+     * @param _donationAmount Net amount for Zakat donation
+     * @param _tipAmount Tip amount for platform operations
+     * @return totalAmount Total amount to be transferred, netAmount Amount available for Zakat distribution
      */
     function calculateDonationAmounts(
-        uint256 _amount
-    ) external view returns (uint256 netAmount, uint256 platformFee) {
-        platformFee = (_amount * s_platformFeeBps) / BPS_BASE;
-        netAmount = _amount - platformFee;
+        uint256 _donationAmount,
+        uint256 _tipAmount
+    ) external pure returns (uint256 totalAmount, uint256 netAmount) {
+        totalAmount = _donationAmount + _tipAmount;
+        netAmount = _donationAmount;
     }
 }
